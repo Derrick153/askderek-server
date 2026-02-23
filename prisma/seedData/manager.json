@@ -1,72 +1,62 @@
 [
   {
-    "id": 1,
-    "cognitoId": "010be580-60a1-70ae-780e-18a6fd94ad32",
-    "name": "John Smith",
-    "email": "john.smith@example.com",
-    "phoneNumber": "+1 (555) 123-4567"
+    "clerkId": "user_2pQKm8xNvYzJ9Rh3WkLqB5TcDfG",
+    "name": "Kwame Mensah - Regional Manager",
+    "email": "kwame.mensah@askderek.com",
+    "phoneNumber": "+233241234567"
   },
   {
-    "id": 2,
-    "cognitoId": "us-east-2:23456789-90ab-cdef-1234-567890abcdef",
-    "name": "Sarah Johnson",
-    "email": "sarah.johnson@example.com",
-    "phoneNumber": "+1 (555) 987-6543"
+    "clerkId": "user_2pQKm8yPwXzK0Si4XlMrC6UeDhH",
+    "name": "Ama Serwaa - New Atuabo & Tamso",
+    "email": "ama.serwaa@askderek.com",
+    "phoneNumber": "+233202345678"
   },
   {
-    "id": 3,
-    "cognitoId": "us-east-2:34567890-90ab-cdef-1234-567890abcdef",
-    "name": "Michael Brown",
-    "email": "michael.brown@example.com",
-    "phoneNumber": "+1 (555) 456-7890"
+    "clerkId": "user_2pQKm8zQxYzL1Tj5YmNsD7VfEiI",
+    "name": "Kojo Asante - UMaT Campus",
+    "email": "kojo.asante@askderek.com",
+    "phoneNumber": "+233551234890"
   },
   {
-    "id": 4,
-    "cognitoId": "us-east-2:45678901-90ab-cdef-1234-567890abcdef",
-    "name": "Emily Davis",
-    "email": "emily.davis@example.com",
-    "phoneNumber": "+1 (555) 234-5678"
+    "clerkId": "user_2pQKm90RyZzM2Uk6ZnOtE8WgFjJ",
+    "name": "Abena Darko - Kwabedu & Low Cost",
+    "email": "abena.darko@askderek.com",
+    "phoneNumber": "+233247890123"
   },
   {
-    "id": 5,
-    "cognitoId": "us-east-2:56789012-90ab-cdef-1234-567890abcdef",
-    "name": "Robert Wilson",
-    "email": "robert.wilson@example.com",
-    "phoneNumber": "+1 (555) 876-5432"
+    "clerkId": "user_2pQKm91SzAzN3Vl7AoPuF9XhGkK",
+    "name": "Yaw Boateng - Brahabebom & Nsuta",
+    "email": "yaw.boateng@askderek.com",
+    "phoneNumber": "+233501234678"
   },
   {
-    "id": 6,
-    "cognitoId": "us-east-2:67890123-90ab-cdef-1234-567890abcdef",
-    "name": "Lisa Thompson",
-    "email": "lisa.thompson@example.com",
-    "phoneNumber": "+1 (555) 345-6789"
+    "clerkId": "user_2pQKm92TzBzO4Wm8BpQvG0YiHlL",
+    "name": "Nana Kofi - Bonsa & Aboso",
+    "email": "nana.kofi@askderek.com",
+    "phoneNumber": "+233271234567"
   },
   {
-    "id": 7,
-    "cognitoId": "us-east-2:78901234-90ab-cdef-1234-567890abcdef",
-    "name": "Daniel Martinez",
-    "email": "daniel.martinez@example.com",
-    "phoneNumber": "+1 (555) 789-0123"
+    "clerkId": "user_2pQKm93UzCzP5Xn9CqRwH1ZjImM",
+    "name": "Afiya Sule - Cyanide & Bonsawire",
+    "email": "afiya.sule@askderek.com",
+    "phoneNumber": "+233541234890"
   },
   {
-    "id": 8,
-    "cognitoId": "us-east-2:89012345-90ab-cdef-1234-567890abcdef",
-    "name": "Olivia Garcia",
-    "email": "olivia.garcia@example.com",
-    "phoneNumber": "+1 (555) 678-9012"
+    "clerkId": "user_2pQKm94VzDzQ6Yo0DrSxI2AkJnN",
+    "name": "Ibrahim Yussif - South Tarkwa",
+    "email": "ibrahim.yussif@askderek.com",
+    "phoneNumber": "+233551987654"
   },
   {
-    "id": 9,
-    "cognitoId": "us-east-2:90123456-90ab-cdef-1234-567890abcdef",
-    "name": "Ethan Rodriguez",
-    "email": "ethan.rodriguez@example.com",
-    "phoneNumber": "+1 (555) 567-8901"
+    "clerkId": "user_2pQKm95WzEzR7Zp1EsTyJ3BlKoO",
+    "name": "Samuel Annan - Maintenance",
+    "email": "samuel.annan@askderek.com",
+    "phoneNumber": "+233249876543"
   },
   {
-    "id": 10,
-    "cognitoId": "us-east-2:01234567-90ab-cdef-1234-567890abcdef",
-    "name": "Sophia Kim",
-    "email": "sophia.kim@example.com",
-    "phoneNumber": "+1 (555) 456-7890"
+    "clerkId": "user_2pQKm96XzFzS8Aq2FtUzK4CmLpP",
+    "name": "Esther Gyamfi - Tenant Relations",
+    "email": "esther.gyamfi@askderek.com",
+    "phoneNumber": "+233208765432"
   }
 ]

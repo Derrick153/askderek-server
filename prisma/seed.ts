@@ -16,6 +16,68 @@ function toCamelCase(str: string): string {
   return str.charAt(0).toLowerCase() + str.slice(1);
 }
 
+// ✨ FIXED: Transform data to match Prisma schema requirements
+function transformDataForClerk(modelName: string, item: any): any {
+  const transformed = { ...item };
+
+  // Manager: cognitoId → clerkId (keep existing logic)
+  if (modelName === "Manager" && item.cognitoId) {
+    transformed.clerkId = `clerk_manager_${item.id}`;
+    delete transformed.cognitoId;
+  }
+
+  // Tenant: clerkUserId → clerkId (FIX for missing clerkId error)
+  if (modelName === "Tenant") {
+    if (item.clerkUserId) {
+      transformed.clerkId = item.clerkUserId;
+      delete transformed.clerkUserId;
+    }
+    if (item.cognitoId) {
+      transformed.clerkId = `clerk_tenant_${item.id}`;
+      delete transformed.cognitoId;
+    }
+  }
+
+  // Property: managerId → managerClerkId (keep existing logic)
+  if (modelName === "Property" && item.managerId) {
+    transformed.managerClerkId = `clerk_manager_${item.managerId}`;
+    delete transformed.managerId;
+  }
+
+  // Lease: Map securityDeposit → deposit AND rentPerMonth → rent (if they exist)
+  if (modelName === "Lease") {
+    // Map securityDeposit to deposit
+    if (item.securityDeposit !== undefined) {
+      transformed.deposit = item.securityDeposit;
+      delete transformed.securityDeposit;
+    }
+    
+    // Map rentPerMonth to rent
+    if (item.rentPerMonth !== undefined) {
+      transformed.rent = item.rentPerMonth;
+      delete transformed.rentPerMonth;
+    }
+    
+    // Handle tenant clerk ID mapping
+    if (item.tenantCognitoId) {
+      const tenantId = item.tenantId || 1;
+      transformed.tenantClerkId = `clerk_tenant_${tenantId}`;
+      delete transformed.tenantCognitoId;
+      delete transformed.tenantId;
+    }
+  }
+
+  // Application: tenantCognitoId → tenantClerkId (keep existing logic)
+  if (modelName === "Application" && item.tenantCognitoId) {
+    const tenantId = item.tenantId || 1;
+    transformed.tenantClerkId = `clerk_tenant_${tenantId}`;
+    delete transformed.tenantCognitoId;
+    delete transformed.tenantId;
+  }
+
+  return transformed;
+}
+
 async function insertLocationData(locations: any[]) {
   for (const location of locations) {
     const { id, country, city, state, address, postalCode, coordinates } =
@@ -46,11 +108,16 @@ async function resetSequence(modelName: string) {
   if (maxIdResult.length === 0) return;
 
   const nextId = maxIdResult[0].id + 1;
-  await prisma.$executeRaw(
-    Prisma.raw(`
-    SELECT setval(pg_get_serial_sequence('${quotedModelName}', 'id'), coalesce(max(id)+1, ${nextId}), false) FROM ${quotedModelName};
-  `)
-  );
+  
+  const query = `
+    SELECT setval(
+      pg_get_serial_sequence('${quotedModelName}', 'id'), 
+      COALESCE((SELECT MAX(id) FROM ${quotedModelName}) + 1, ${nextId}), 
+      false
+    );
+  `;
+  
+  await prisma.$executeRawUnsafe(query);
   console.log(`Reset sequence for ${modelName} to ${nextId}`);
 }
 
@@ -79,19 +146,17 @@ async function main() {
   const dataDirectory = path.join(__dirname, "seedData");
 
   const orderedFileNames = [
-    "location.json", // No dependencies
-    "manager.json", // No dependencies
-    "property.json", // Depends on location and manager
-    "tenant.json", // No dependencies
-    "lease.json", // Depends on property and tenant
-    "application.json", // Depends on property and tenant
-    "payment.json", // Depends on lease
+    "location.json",
+    "manager.json",
+    "property.json",
+    "tenant.json",
+    "lease.json",
+    "application.json",
+    "payment.json",
   ];
 
-  // Delete all existing data
   await deleteAllData(orderedFileNames);
 
-  // Seed data
   for (const fileName of orderedFileNames) {
     const filePath = path.join(dataDirectory, fileName);
     const jsonData = JSON.parse(fs.readFileSync(filePath, "utf-8"));
@@ -106,8 +171,11 @@ async function main() {
       const model = (prisma as any)[modelNameCamel];
       try {
         for (const item of jsonData) {
+          // ✨ Transform the data before inserting
+          const transformedItem = transformDataForClerk(modelName, item);
+          
           await model.create({
-            data: item,
+            data: transformedItem,
           });
         }
         console.log(`Seeded ${modelName} with data from ${fileName}`);
@@ -116,9 +184,7 @@ async function main() {
       }
     }
 
-    // Reset the sequence after seeding each model
-    await resetSequence(modelName);
-
+    await resetSequence(modelNameCamel);
     await sleep(1000);
   }
 }

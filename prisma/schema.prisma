@@ -6,6 +6,7 @@ generator client {
 datasource db {
   provider   = "postgresql"
   url        = env("DATABASE_URL")
+  directUrl  = env("DIRECT_URL")
   extensions = [postgis]
 }
 
@@ -25,6 +26,10 @@ enum Highlight {
   CloseToTransit
   GreatView
   QuietNeighborhood
+  SecurityGuard
+  Gated
+  BackupGenerator
+  BoreHole
 }
 
 enum Amenity {
@@ -41,15 +46,27 @@ enum Amenity {
   Parking
   PetsAllowed
   WiFi
+  Generator
+  WaterTank
+  DSTV
+  TiledFloors
+  Balcony
+  Furnished
+  SemiFinished
 }
 
 enum PropertyType {
   Rooms
-  Tinyhouse
+  SelfContained
+  Chamber
   Apartment
   Villa
   Townhouse
   Cottage
+  Tinyhouse
+  Office
+  Shop
+  CompoundHouse
 }
 
 enum ApplicationStatus {
@@ -87,12 +104,18 @@ model Property {
   locationId        Int
   managerClerkId    String
 
-  location     Location      @relation(fields: [locationId], references: [id])
-  manager      Manager       @relation(fields: [managerClerkId], references: [clerkId])
+  location     Location        @relation(fields: [locationId], references: [id])
+  manager      Manager         @relation(fields: [managerClerkId], references: [clerkId])
   leases       Lease[]
   applications Application[]
-  favoritedBy  Tenant[]      @relation("TenantFavorites")
-  tenants      Tenant[]      @relation("TenantProperties")
+  favoritedBy  Tenant[]        @relation("TenantFavorites")
+  tenants      Tenant[]        @relation("TenantProperties")
+  views        PropertyView[]
+
+  @@index([managerClerkId])
+  @@index([locationId])
+  @@index([propertyType])
+  @@index([pricePerMonth])
 }
 
 model Manager {
@@ -112,10 +135,11 @@ model Tenant {
   email       String
   phoneNumber String
 
-  properties   Property[]    @relation("TenantProperties")
-  favorites    Property[]    @relation("TenantFavorites")
-  applications Application[]
-  leases       Lease[]
+  properties     Property[]      @relation("TenantProperties")
+  favorites      Property[]      @relation("TenantFavorites")
+  applications   Application[]
+  leases         Lease[]
+  propertyViews  PropertyView[]
 }
 
 model Location {
@@ -123,7 +147,8 @@ model Location {
   address     String
   city        String
   state       String
-  country     String
+  region      String?
+  country     String                                @default("Ghana")
   postalCode  String
   coordinates Unsupported("geography(Point, 4326)")
 
@@ -132,8 +157,8 @@ model Location {
 
 model Application {
   id              Int               @id @default(autoincrement())
-  applicationDate DateTime
-  status          ApplicationStatus
+  applicationDate DateTime          @default(now())
+  status          ApplicationStatus @default(Pending)
   propertyId      Int
   tenantClerkId   String
   name            String
@@ -145,6 +170,10 @@ model Application {
   property Property @relation(fields: [propertyId], references: [id])
   tenant   Tenant   @relation(fields: [tenantClerkId], references: [clerkId])
   lease    Lease?   @relation(fields: [leaseId], references: [id])
+
+  @@index([tenantClerkId])
+  @@index([propertyId])
+  @@index([status])
 }
 
 model Lease {
@@ -160,16 +189,39 @@ model Lease {
   tenant      Tenant       @relation(fields: [tenantClerkId], references: [clerkId])
   application Application?
   payments    Payment[]
+
+  @@index([tenantClerkId])
+  @@index([propertyId])
 }
 
 model Payment {
-  id            Int           @id @default(autoincrement())
-  amountDue     Float
-  amountPaid    Float
-  dueDate       DateTime
-  paymentDate   DateTime
-  paymentStatus PaymentStatus
-  leaseId       Int
+  id                Int           @id @default(autoincrement())
+  amountDue         Float
+  amountPaid        Float
+  dueDate           DateTime
+  paymentDate       DateTime?
+  paymentStatus     PaymentStatus @default(Pending)
+  leaseId           Int
+  paystackReference String?       @unique
 
   lease Lease @relation(fields: [leaseId], references: [id])
+
+  @@index([leaseId])
+  @@index([paymentStatus])
+  @@index([dueDate])
+}
+
+model PropertyView {
+  id            String   @id @default(cuid())
+  tenantClerkId String
+  propertyId    Int
+  viewedAt      DateTime @default(now())
+
+  tenant   Tenant   @relation(fields: [tenantClerkId], references: [clerkId], onDelete: Cascade)
+  property Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+
+  @@index([tenantClerkId])
+  @@index([propertyId])
+  @@index([viewedAt])
+  @@map("property_views")
 }

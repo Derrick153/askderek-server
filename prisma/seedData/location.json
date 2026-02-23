@@ -1,92 +1,20 @@
 [
-  {
-    "id": 1,
-    "country": "Ghana",
-    "city": "Tarkwa",
-    "state": "Western Region",
-    "address": "New Atuabo Junction",
-    "postalCode": "AK-039-5028",
-    "coordinates": "POINT(-1.9820 5.0758)"
-  },
-  {
-    "id": 2,
-    "country": "Ghana",
-    "city": "Tarkwa",
-    "state": "Western Region",
-    "address": "Tamso Main Road",
-    "postalCode": "AK-039-5029",
-    "coordinates": "POINT(-1.9850 5.0780)"
-  },
-  {
-    "id": 3,
-    "country": "Ghana",
-    "city": "Tarkwa",
-    "state": "Western Region",
-    "address": "UMaT Campus Area",
-    "postalCode": "AK-039-5030",
-    "coordinates": "POINT(-1.9852 5.0835)"
-  },
-  {
-    "id": 4,
-    "country": "Ghana",
-    "city": "Tarkwa",
-    "state": "Western Region",
-    "address": "Kwabedu Township",
-    "postalCode": "AK-039-5031",
-    "coordinates": "POINT(-1.9795 5.0810)"
-  },
-  {
-    "id": 5,
-    "country": "Ghana",
-    "city": "Tarkwa",
-    "state": "Western Region",
-    "address": "Low Cost Housing Estate",
-    "postalCode": "AK-039-5032",
-    "coordinates": "POINT(-1.9775 5.0698)"
-  },
-  {
-    "id": 6,
-    "country": "Ghana",
-    "city": "Tarkwa",
-    "state": "Western Region",
-    "address": "Brahabebom Market Area",
-    "postalCode": "AK-039-5033",
-    "coordinates": "POINT(-1.9890 5.0745)"
-  },
-  {
-    "id": 7,
-    "country": "Ghana",
-    "city": "Tarkwa",
-    "state": "Western Region",
-    "address": "Nsuta Town Center",
-    "postalCode": "AK-039-5034",
-    "coordinates": "POINT(-1.9650 5.0920)"
-  },
-  {
-    "id": 8,
-    "country": "Ghana",
-    "city": "Tarkwa",
-    "state": "Western Region",
-    "address": "Bonsa Township",
-    "postalCode": "AK-039-5035",
-    "coordinates": "POINT(-1.9550 5.1050)"
-  },
-  {
-    "id": 9,
-    "country": "Ghana",
-    "city": "Tarkwa",
-    "state": "Western Region",
-    "address": "Aboso Junction",
-    "postalCode": "AK-039-5036",
-    "coordinates": "POINT(-2.0100 5.0650)"
-  },
-  {
-    "id": 10,
-    "country": "Ghana",
-    "city": "Tarkwa",
-    "state": "Western Region",
-    "address": "Cyanide Area",
-    "postalCode": "AK-039-5037",
-    "coordinates": "POINT(-1.9880 5.0720)"
-  }
+  {"id": 1, "country": "Ghana", "city": "Tarkwa", "state": "Western Region", "address": "New Atuabo Junction", "postalCode": "AK-039-5028", "coordinates": "POINT(-1.9820 5.0758)"},
+  {"id": 2, "country": "Ghana", "city": "Tarkwa", "state": "Western Region", "address": "Tamso Main Road", "postalCode": "AK-039-5029", "coordinates": "POINT(-1.9850 5.0780)"},
+  {"id": 3, "country": "Ghana", "city": "Tarkwa", "state": "Western Region", "address": "UMaT Campus Area", "postalCode": "AK-039-5030", "coordinates": "POINT(-1.9852 5.0835)"},
+  {"id": 4, "country": "Ghana", "city": "Tarkwa", "state": "Western Region", "address": "Kwabedu Township", "postalCode": "AK-039-5031", "coordinates": "POINT(-1.9795 5.0810)"},
+  {"id": 5, "country": "Ghana", "city": "Tarkwa", "state": "Western Region", "address": "Low Cost Housing Estate", "postalCode": "AK-039-5032", "coordinates": "POINT(-1.9775 5.0698)"},
+  {"id": 6, "country": "Ghana", "city": "Tarkwa", "state": "Western Region", "address": "Brahabebom Market Area", "postalCode": "AK-039-5033", "coordinates": "POINT(-1.9890 5.0745)"},
+  {"id": 7, "country": "Ghana", "city": "Tarkwa", "state": "Western Region", "address": "Nsuta Town Center", "postalCode": "AK-039-5034", "coordinates": "POINT(-1.9650 5.0920)"},
+  {"id": 8, "country": "Ghana", "city": "Tarkwa", "state": "Western Region", "address": "Bonsa Township", "postalCode": "AK-039-5035", "coordinates": "POINT(-1.9550 5.1050)"},
+  {"id": 9, "country": "Ghana", "city": "Tarkwa", "state": "Western Region", "address": "Aboso Junction", "postalCode": "AK-039-5036", "coordinates": "POINT(-2.0100 5.0650)"},
+  {"id": 10, "country": "Ghana", "city": "Tarkwa", "state": "Western Region", "address": "Cyanide Area", "postalCode": "AK-039-5037", "coordinates": "POINT(-1.9880 5.0720)"},
+  {"id": 11, "country": "Ghana", "city": "Tarkwa", "state": "Western Region", "address": "Bonsawire Estate", "postalCode": "AK-039-5038", "coordinates": "POINT(-1.9700 5.0800)"},
+  {"id": 12, "country": "Ghana", "city": "Tarkwa", "state": "Western Region", "address": "Kyekyewere", "postalCode": "AK-039-5039", "coordinates": "POINT(-1.9600 5.0880)"},
+  {"id": 13, "country": "Ghana", "city": "Tarkwa", "state": "Western Region", "address": "Efuanta Township", "postalCode": "AK-039-5040", "coordinates": "POINT(-1.9920 5.0690)"},
+  {"id": 14, "country": "Ghana", "city": "Tarkwa", "state": "Western Region", "address": "Akoon Market", "postalCode": "AK-039-5041", "coordinates": "POINT(-1.9750 5.0770)"},
+  {"id": 15, "country": "Ghana", "city": "Tarkwa", "state": "Western Region", "address": "Bankyim", "postalCode": "AK-039-5042", "coordinates": "POINT(-1.9950 5.0730)"},
+  {"id": 16, "country": "Ghana", "city": "Tarkwa", "state": "Western Region", "address": "Nzema Line", "postalCode": "AK-039-5043", "coordinates": "POINT(-1.9810 5.0750)"},
+  {"id": 17, "country": "Ghana", "city": "Tarkwa", "state": "Western Region", "address": "Zongo Community", "postalCode": "AK-039-5044", "coordinates": "POINT(-1.9830 5.0740)"},
+  {"id": 18, "country": "Ghana", "city": "Tarkwa", "state": "Western Region", "address": "Tarkwa & Aboso Road", "postalCode": "AK-039-5045", "coordinates": "POINT(-2.0000 5.0680)"}
 ]
