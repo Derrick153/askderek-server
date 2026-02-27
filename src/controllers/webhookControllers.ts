@@ -84,19 +84,27 @@ async function handleUserUpdated(data: any) {
       where: { clerkId: id },
       data: { ...(name && { name }), ...(email && { email }), ...(phoneNumber && { phoneNumber }) },
     });
-  } catch {}
+  } catch (err) {
+    console.log(`ℹ️ Tenant ${id} not found for update (may be manager-only)`);
+  }
 
   try {
     await prisma.manager.update({
       where: { clerkId: id },
       data: { ...(name && { name }), ...(email && { email }), ...(phoneNumber && { phoneNumber }) },
     });
-  } catch {}
+  } catch (err) {
+    console.log(`ℹ️ Manager ${id} not found for update (may be tenant-only)`);
+  }
 }
 
 async function handleUserDeleted(data: any) {
   const { id } = data;
-  try { await prisma.tenant.delete({ where: { clerkId: id } }); } catch {}
-  try { await prisma.manager.delete({ where: { clerkId: id } }); } catch {}
+  try { await prisma.tenant.delete({ where: { clerkId: id } }); } catch (err) {
+    console.log(`ℹ️ Tenant ${id} not found for deletion`);
+  }
+  try { await prisma.manager.delete({ where: { clerkId: id } }); } catch (err) {
+    console.log(`ℹ️ Manager ${id} not found for deletion`);
+  }
   console.log(`✅ User deleted: ${id}`);
 }

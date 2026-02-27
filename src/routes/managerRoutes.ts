@@ -8,16 +8,16 @@ import {
 
 const router = Router();
 
-// Get manager by userId
-router.get("/:userId", getManager);
-
 // Create new manager
 router.post("/", createManager);
 
+// Get properties managed by a manager (must be before /:userId)
+router.get("/:userId/properties", getManagerProperties);
+
+// Get manager by userId
+router.get("/:userId", getManager);
+
 // Update manager
 router.put("/:userId", updateManager);
-
-// Get properties managed by a manager
-router.get("/:userId/properties", getManagerProperties);
 
 export default router;
