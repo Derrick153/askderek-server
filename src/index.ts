@@ -82,9 +82,6 @@ app.use(
   }
 );
 
-// ─── EXPORT FOR VERCEL SERVERLESS ────────────────────────────────────────────
-export default app;
-
 // ─── START SERVER ────────────────────────────────────────────────────────────
 const server = app.listen(PORT, () => {
   console.log(`\n🚀 RentGhana API is running`);
