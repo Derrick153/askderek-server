@@ -20,7 +20,6 @@ const PORT = process.env.PORT || 5000;
 const NODE_ENV = process.env.NODE_ENV || "development";
 
 // ─── WEBHOOK ROUTE (must be before express.json()) ───────────────────────────
-// Paystack & Clerk webhooks need raw body — do NOT move this below json()
 app.use("/api/webhooks", webhookRoutes);
 
 // ─── CORE MIDDLEWARE ──────────────────────────────────────────────────────────
@@ -32,14 +31,13 @@ app.use(helmet.crossOriginResourcePolicy({ policy: "cross-origin" }));
 
 app.use(
   cors({
-    origin: process.env.CLIENT_URL || "http://localhost:3000",
+    origin: true,
     credentials: true,
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"],
   })
 );
 
-// Log format: dev = colorful, production = combined (for log aggregators)
 app.use(morgan(NODE_ENV === "production" ? "combined" : "dev"));
 
 // ─── API ROUTES ───────────────────────────────────────────────────────────────
@@ -76,7 +74,6 @@ app.use(
     console.error("❌ Unhandled error:", err);
     res.status(err.status || 500).json({
       error: err.message || "Internal server error",
-      // Only expose stack trace in development
       ...(NODE_ENV === "development" && { stack: err.stack }),
     });
   }
@@ -93,15 +90,12 @@ const server = app.listen(PORT, () => {
 });
 
 // ─── GRACEFUL SHUTDOWN ───────────────────────────────────────────────────────
-// Ensures DB connections close cleanly when server stops (e.g. on Render/Railway)
 const shutdown = (signal: string) => {
   console.log(`\n⚠️  ${signal} received — shutting down gracefully...`);
   server.close(() => {
     console.log("✅ Server closed. Goodbye.");
     process.exit(0);
   });
-
-  // Force exit if shutdown takes longer than 10 seconds
   setTimeout(() => {
     console.error("❌ Forced shutdown after timeout.");
     process.exit(1);
@@ -111,7 +105,6 @@ const shutdown = (signal: string) => {
 process.on("SIGTERM", () => shutdown("SIGTERM"));
 process.on("SIGINT", () => shutdown("SIGINT"));
 
-// Catch unhandled promise rejections (e.g. Prisma errors not caught in controllers)
 process.on("unhandledRejection", (reason) => {
   console.error("❌ Unhandled Promise Rejection:", reason);
 });
