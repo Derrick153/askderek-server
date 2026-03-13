@@ -82,8 +82,20 @@ enum PaymentStatus {
   Overdue
 }
 
+enum PropertyStatus {
+  Pending
+  Approved
+  Rejected
+}
+
+enum VerificationStatus {
+  Pending
+  Approved
+  Rejected
+}
+
 model Property {
-  id                Int          @id @default(autoincrement())
+  id                Int            @id @default(autoincrement())
   name              String
   description       String
   pricePerMonth     Float
@@ -92,40 +104,45 @@ model Property {
   photoUrls         String[]
   amenities         Amenity[]
   highlights        Highlight[]
-  isPetsAllowed     Boolean      @default(false)
-  isParkingIncluded Boolean      @default(false)
+  isPetsAllowed     Boolean        @default(false)
+  isParkingIncluded Boolean        @default(false)
   beds              Int
   baths             Float
   squareFeet        Int
   propertyType      PropertyType
-  postedDate        DateTime     @default(now())
-  averageRating     Float?       @default(0)
-  numberOfReviews   Int?         @default(0)
+  postedDate        DateTime       @default(now())
+  status            PropertyStatus @default(Pending)
+  averageRating     Float?         @default(0)
+  numberOfReviews   Int?           @default(0)
   locationId        Int
   managerClerkId    String
 
-  location     Location        @relation(fields: [locationId], references: [id])
-  manager      Manager         @relation(fields: [managerClerkId], references: [clerkId])
+  location     Location       @relation(fields: [locationId], references: [id])
+  manager      Manager        @relation(fields: [managerClerkId], references: [clerkId])
   leases       Lease[]
   applications Application[]
-  favoritedBy  Tenant[]        @relation("TenantFavorites")
-  tenants      Tenant[]        @relation("TenantProperties")
+  favoritedBy  Tenant[]       @relation("TenantFavorites")
+  tenants      Tenant[]       @relation("TenantProperties")
   views        PropertyView[]
+  reports      Report[]
 
   @@index([managerClerkId])
   @@index([locationId])
   @@index([propertyType])
   @@index([pricePerMonth])
+  @@index([status])
 }
 
 model Manager {
-  id          Int    @id @default(autoincrement())
-  clerkId     String @unique
+  id          Int     @id @default(autoincrement())
+  clerkId     String  @unique
   name        String
   email       String
   phoneNumber String
+  isVerified  Boolean @default(false)
 
   managedProperties Property[]
+  verification      LandlordVerification?
 }
 
 model Tenant {
@@ -135,11 +152,11 @@ model Tenant {
   email       String
   phoneNumber String
 
-  properties     Property[]      @relation("TenantProperties")
-  favorites      Property[]      @relation("TenantFavorites")
-  applications   Application[]
-  leases         Lease[]
-  propertyViews  PropertyView[]
+  properties    Property[]     @relation("TenantProperties")
+  favorites     Property[]     @relation("TenantFavorites")
+  applications  Application[]
+  leases        Lease[]
+  propertyViews PropertyView[]
 }
 
 model Location {
@@ -224,4 +241,76 @@ model PropertyView {
   @@index([propertyId])
   @@index([viewedAt])
   @@map("property_views")
+}
+
+model Admin {
+  id        Int      @id @default(autoincrement())
+  clerkId   String   @unique
+  name      String
+  email     String   @unique
+  createdAt DateTime @default(now())
+
+  auditLogs AuditLog[]
+}
+
+model LandlordVerification {
+  id                Int                @id @default(autoincrement())
+  managerClerkId    String             @unique
+  ghanaCardFrontUrl String
+  ghanaCardBackUrl  String
+  phoneNumber       String
+  status            VerificationStatus @default(Pending)
+  rejectionReason   String?
+  submittedAt       DateTime           @default(now())
+  reviewedAt        DateTime?
+  reviewedByAdminId Int?
+
+  manager Manager @relation(fields: [managerClerkId], references: [clerkId])
+
+  @@index([status])
+  @@index([managerClerkId])
+}
+
+model Blacklist {
+  id          Int      @id @default(autoincrement())
+  phoneNumber String?
+  email       String?
+  ghanaCardId String?
+  reason      String
+  createdAt   DateTime @default(now())
+  createdBy   Int
+
+  @@index([phoneNumber])
+  @@index([email])
+}
+
+model Report {
+  id          Int       @id @default(autoincrement())
+  propertyId  Int
+  reportedBy  String
+  reason      String
+  description String?
+  isResolved  Boolean   @default(false)
+  createdAt   DateTime  @default(now())
+  resolvedAt  DateTime?
+  resolvedBy  Int?
+
+  property Property @relation(fields: [propertyId], references: [id])
+
+  @@index([propertyId])
+  @@index([isResolved])
+}
+
+model AuditLog {
+  id        Int      @id @default(autoincrement())
+  adminId   Int
+  action    String
+  target    String
+  details   String?
+  createdAt DateTime @default(now())
+
+  admin Admin @relation(fields: [adminId], references: [id])
+
+  @@index([adminId])
+  @@index([createdAt])
 }
