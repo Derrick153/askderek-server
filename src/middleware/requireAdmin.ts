@@ -14,12 +14,17 @@ export const requireAdmin = async (
       return;
     }
 
-    const admin = await prisma.admin.findUnique({
+    const user = await prisma.user.findUnique({
       where: { clerkId },
     });
 
-    if (!admin) {
-      res.status(403).json({ message: "Admin access required" });
+    if (!user) {
+      res.status(401).json({ message: "User not found" });
+      return;
+    }
+
+    if (user.role !== "ADMIN") {
+      res.status(403).json({ message: "Forbidden - Admin access required" });
       return;
     }
 

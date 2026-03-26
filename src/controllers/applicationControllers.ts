@@ -1,7 +1,7 @@
 ﻿import { Request, Response } from "express";
 import { prisma } from "../lib/prisma";
 
-// ─── LIST APPLICATIONS ────────────────────────────────────────────────────────
+// ─── LIST APPLICATIONS ────────────────────────────────────
 export const listApplications = async (
   req: Request,
   res: Response
@@ -33,10 +33,14 @@ export const listApplications = async (
         property: {
           include: {
             location: true,
-            manager: true,
+            manager: {
+              include: { user: true },
+            },
           },
         },
-        tenant: true,
+        tenant: {
+          include: { user: true },
+        },
         lease: true,
       },
       orderBy: { applicationDate: "desc" },
@@ -57,7 +61,16 @@ export const listApplications = async (
         ...app.property,
         address: app.property.location.address,
       },
-      manager: app.property.manager,
+      tenant: {
+        ...app.tenant,
+        name: app.tenant.user.name,
+        email: app.tenant.user.email,
+      },
+      manager: {
+        ...app.property.manager,
+        name: app.property.manager?.user?.name,
+        email: app.property.manager?.user?.email,
+      },
       lease: app.lease
         ? {
             ...app.lease,
@@ -73,7 +86,7 @@ export const listApplications = async (
   }
 };
 
-// ─── CREATE APPLICATION ───────────────────────────────────────────────────────
+// ─── CREATE APPLICATION ───────────────────────────────────
 export const createApplication = async (
   req: Request,
   res: Response
@@ -112,20 +125,35 @@ export const createApplication = async (
       return;
     }
 
+    // ✅ Find or create tenant
     let tenant = await prisma.tenant.findUnique({
       where: { clerkId: String(tenantClerkId) },
     });
 
     if (!tenant) {
-      tenant = await prisma.tenant.create({
-        data: {
+      // ✅ Create User first
+      const user = await prisma.user.upsert({
+        where: { clerkId: String(tenantClerkId) },
+        update: { name, email, phoneNumber },
+        create: {
           clerkId: String(tenantClerkId),
           name,
           email,
           phoneNumber,
+          role: "TENANT",
         },
       });
-      console.log("✅ New tenant created:", tenant.name);
+
+      // ✅ Create Tenant profile
+      tenant = await prisma.tenant.create({
+        data: {
+          clerkId: String(tenantClerkId),
+          userId: user.id,
+          phoneNumber,
+        },
+      });
+
+      console.log("✅ New tenant created:", user.name);
     }
 
     const application = await prisma.application.create({
@@ -140,8 +168,15 @@ export const createApplication = async (
         tenant: { connect: { clerkId: String(tenantClerkId) } },
       },
       include: {
-        property: { include: { location: true, manager: true } },
-        tenant: true,
+        property: {
+          include: {
+            location: true,
+            manager: { include: { user: true } },
+          },
+        },
+        tenant: {
+          include: { user: true },
+        },
       },
     });
 
@@ -153,7 +188,7 @@ export const createApplication = async (
   }
 };
 
-// ─── UPDATE APPLICATION STATUS ────────────────────────────────────────────────
+// ─── UPDATE APPLICATION STATUS ────────────────────────────
 export const updateApplicationStatus = async (
   req: Request,
   res: Response
@@ -172,7 +207,10 @@ export const updateApplicationStatus = async (
 
     const application = await prisma.application.findUnique({
       where: { id: Number(id) },
-      include: { property: true, tenant: true },
+      include: {
+        property: true,
+        tenant: { include: { user: true } },
+      },
     });
 
     if (!application) {
@@ -243,8 +281,15 @@ export const updateApplicationStatus = async (
     const updated = await prisma.application.findUnique({
       where: { id: Number(id) },
       include: {
-        property: { include: { location: true, manager: true } },
-        tenant: true,
+        property: {
+          include: {
+            location: true,
+            manager: { include: { user: true } },
+          },
+        },
+        tenant: {
+          include: { user: true },
+        },
         lease: true,
       },
     });

@@ -2,16 +2,26 @@
 import { prisma } from "../lib/prisma";
 import { wktToGeoJSON } from "@terraformer/wkt";
 
+// ── GET TENANT ────────────────────────────────────────────
 export const getTenant = async (req: Request, res: Response): Promise<void> => {
   try {
     const { userId } = req.params;
+
     const tenant = await prisma.tenant.findUnique({
       where: { clerkId: userId },
-      include: { favorites: { include: { location: true } } },
+      include: {
+        user: true,
+        favorites: { include: { location: true } },
+      },
     });
 
     if (tenant) {
-      res.json(tenant);
+      res.json({
+        ...tenant,
+        name: tenant.user.name,
+        email: tenant.user.email,
+        phoneNumber: tenant.phoneNumber || tenant.user.phoneNumber,
+      });
     } else {
       res.status(404).json({ message: "Tenant not found" });
     }
@@ -20,32 +30,60 @@ export const getTenant = async (req: Request, res: Response): Promise<void> => {
   }
 };
 
+// ── CREATE TENANT ─────────────────────────────────────────
 export const createTenant = async (req: Request, res: Response): Promise<void> => {
   try {
     const { clerkId, name, email, phoneNumber } = req.body;
-    const tenant = await prisma.tenant.create({
-      data: { clerkId, name, email, phoneNumber },
+
+    // ✅ Create User first
+    const user = await prisma.user.upsert({
+      where: { clerkId },
+      update: { name, email, phoneNumber },
+      create: { clerkId, name, email, phoneNumber, role: "TENANT" },
     });
-    res.status(201).json(tenant);
+
+    // ✅ Create Tenant profile
+    const tenant = await prisma.tenant.upsert({
+      where: { userId: user.id },
+      update: { phoneNumber },
+      create: { clerkId, userId: user.id, phoneNumber },
+    });
+
+    res.status(201).json({ ...tenant, name: user.name, email: user.email });
   } catch (error: any) {
     res.status(500).json({ message: `Error creating tenant: ${error.message}` });
   }
 };
 
+// ── UPDATE TENANT ─────────────────────────────────────────
 export const updateTenant = async (req: Request, res: Response): Promise<void> => {
   try {
     const { userId } = req.params;
     const { name, email, phoneNumber } = req.body;
-    const updatedTenant = await prisma.tenant.update({
+
+    // ✅ Update User table
+    const user = await prisma.user.update({
       where: { clerkId: userId },
-      data: { name, email, phoneNumber },
+      data: {
+        ...(name && { name }),
+        ...(email && { email }),
+        ...(phoneNumber && { phoneNumber }),
+      },
     });
-    res.json(updatedTenant);
+
+    // ✅ Update Tenant phone if provided
+    const tenant = await prisma.tenant.update({
+      where: { clerkId: userId },
+      data: { ...(phoneNumber && { phoneNumber }) },
+    });
+
+    res.json({ ...tenant, name: user.name, email: user.email });
   } catch (error: any) {
     res.status(500).json({ message: `Error updating tenant: ${error.message}` });
   }
 };
 
+// ── GET CURRENT RESIDENCES ────────────────────────────────
 export const getCurrentResidences = async (req: Request, res: Response): Promise<void> => {
   try {
     const { userId } = req.params;
@@ -66,7 +104,7 @@ export const getCurrentResidences = async (req: Request, res: Response): Promise
           orderBy: { startDate: "desc" },
         },
         manager: {
-          select: { id: true, name: true, phoneNumber: true, email: true },
+          include: { user: true },
         },
       },
     });
@@ -81,6 +119,11 @@ export const getCurrentResidences = async (req: Request, res: Response): Promise
           const geoJSON: any = wktToGeoJSON(coordinates[0]?.coordinates || "");
           return {
             ...property,
+            manager: {
+              ...property.manager,
+              name: property.manager?.user?.name,
+              email: property.manager?.user?.email,
+            },
             location: {
               ...property.location,
               coordinates: {
@@ -92,7 +135,15 @@ export const getCurrentResidences = async (req: Request, res: Response): Promise
         } catch {
           return {
             ...property,
-            location: { ...property.location, coordinates: { longitude: 0, latitude: 0 } },
+            manager: {
+              ...property.manager,
+              name: property.manager?.user?.name,
+              email: property.manager?.user?.email,
+            },
+            location: {
+              ...property.location,
+              coordinates: { longitude: 0, latitude: 0 },
+            },
           };
         }
       })
@@ -104,15 +155,20 @@ export const getCurrentResidences = async (req: Request, res: Response): Promise
   }
 };
 
+// ── ADD FAVORITE ──────────────────────────────────────────
 export const addFavoriteProperty = async (req: Request, res: Response): Promise<void> => {
   try {
     const { userId, propertyId } = req.params;
+
     const tenant = await prisma.tenant.findUnique({
       where: { clerkId: userId },
       include: { favorites: true },
     });
 
-    if (!tenant) { res.status(404).json({ message: "Tenant not found" }); return; }
+    if (!tenant) {
+      res.status(404).json({ message: "Tenant not found" });
+      return;
+    }
 
     const propertyIdNumber = Number(propertyId);
     const existingFavorites = tenant.favorites || [];
@@ -132,20 +188,24 @@ export const addFavoriteProperty = async (req: Request, res: Response): Promise<
   }
 };
 
+// ── REMOVE FAVORITE ───────────────────────────────────────
 export const removeFavoriteProperty = async (req: Request, res: Response): Promise<void> => {
   try {
     const { userId, propertyId } = req.params;
+
     const updatedTenant = await prisma.tenant.update({
       where: { clerkId: userId },
       data: { favorites: { disconnect: { id: Number(propertyId) } } },
       include: { favorites: { include: { location: true } } },
     });
+
     res.json(updatedTenant);
   } catch (err: any) {
     res.status(500).json({ message: `Error removing favorite property: ${err.message}` });
   }
 };
 
+// ── GET TENANT STATS ──────────────────────────────────────
 export const getTenantStats = async (req: Request, res: Response): Promise<void> => {
   try {
     const { userId } = req.params;
@@ -178,6 +238,7 @@ export const getTenantStats = async (req: Request, res: Response): Promise<void>
   }
 };
 
+// ── GET RECENT PROPERTIES ─────────────────────────────────
 export const getRecentProperties = async (req: Request, res: Response): Promise<void> => {
   try {
     const { userId } = req.params;

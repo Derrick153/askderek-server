@@ -1,13 +1,263 @@
 generator client {
   provider        = "prisma-client-js"
   previewFeatures = ["postgresqlExtensions"]
+  binaryTargets   = ["native", "rhel-openssl-1.0.x", "rhel-openssl-3.0.x"]
 }
 
 datasource db {
   provider   = "postgresql"
   url        = env("DATABASE_URL")
   directUrl  = env("DIRECT_URL")
-  extensions = [postgis]
+  extensions = [pg_graphql, pg_stat_statements, pgcrypto, postgis, uuid_ossp(map: "uuid-ossp", schema: "extensions")]
+}
+
+model User {
+  id          Int        @id @default(autoincrement())
+  clerkId     String     @unique
+  email       String     @unique
+  name        String
+  phoneNumber String?
+  role        Role       @default(TENANT)
+  isActive    Boolean    @default(true)
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+  auditLogs   AuditLog[]
+  manager     Manager?
+  tenant      Tenant?
+
+  @@index([clerkId])
+  @@index([email])
+  @@index([role])
+}
+
+model Manager {
+  id                Int                   @id @default(autoincrement())
+  clerkId           String                @unique
+  isVerified        Boolean               @default(false)
+  userId            Int                   @unique
+  verification      LandlordVerification?
+  user              User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  managedProperties Property[]
+
+  @@index([clerkId])
+}
+
+model Tenant {
+  id            Int            @id @default(autoincrement())
+  clerkId       String         @unique
+  phoneNumber   String?
+  userId        Int            @unique
+  applications  Application[]
+  leases        Lease[]
+  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  propertyViews PropertyView[]
+  favorites     Property[]     @relation("TenantFavorites")
+  properties    Property[]     @relation("TenantProperties")
+
+  @@index([clerkId])
+}
+
+model Property {
+  id                Int            @id @default(autoincrement())
+  name              String
+  description       String
+  pricePerMonth     Float
+  securityDeposit   Float          @default(0)
+  applicationFee    Float          @default(0)
+  photoUrls         String[]
+  amenities         Amenity[]
+  highlights        Highlight[]
+  isPetsAllowed     Boolean        @default(false)
+  isParkingIncluded Boolean        @default(false)
+  beds              Int
+  baths             Float
+  squareFeet        Int            @default(0)
+  propertyType      PropertyType
+  postedDate        DateTime       @default(now())
+  status            PropertyStatus @default(Pending)
+  averageRating     Float?         @default(0)
+  numberOfReviews   Int?           @default(0)
+  locationId        Int
+  managerClerkId    String
+  applications      Application[]
+  leases            Lease[]
+  location          Location       @relation(fields: [locationId], references: [id])
+  manager           Manager        @relation(fields: [managerClerkId], references: [clerkId])
+  reports           Report[]
+  views             PropertyView[]
+  favoritedBy       Tenant[]       @relation("TenantFavorites")
+  tenants           Tenant[]       @relation("TenantProperties")
+
+  @@index([managerClerkId])
+  @@index([locationId])
+  @@index([propertyType])
+  @@index([pricePerMonth])
+  @@index([status])
+  @@index([postedDate])
+}
+
+model Location {
+  id          Int                      @id @default(autoincrement())
+  address     String
+  city        String
+  state       String                   @default("Western")
+  region      String?
+  country     String                   @default("Ghana")
+  postalCode  String                   @default("")
+  coordinates Unsupported("geography")
+  properties  Property[]
+
+  @@index([city])
+}
+
+model Application {
+  id              Int               @id @default(autoincrement())
+  applicationDate DateTime          @default(now())
+  status          ApplicationStatus @default(Pending)
+  propertyId      Int
+  tenantClerkId   String
+  name            String
+  email           String
+  phoneNumber     String
+  message         String?
+  leaseId         Int?              @unique
+  lease           Lease?            @relation(fields: [leaseId], references: [id])
+  property        Property          @relation(fields: [propertyId], references: [id])
+  tenant          Tenant            @relation(fields: [tenantClerkId], references: [clerkId])
+
+  @@index([tenantClerkId])
+  @@index([propertyId])
+  @@index([status])
+  @@index([applicationDate])
+}
+
+model Lease {
+  id            Int          @id @default(autoincrement())
+  startDate     DateTime
+  endDate       DateTime
+  rent          Float
+  deposit       Float        @default(0)
+  propertyId    Int
+  tenantClerkId String
+  createdAt     DateTime     @default(now())
+  application   Application?
+  property      Property     @relation(fields: [propertyId], references: [id])
+  tenant        Tenant       @relation(fields: [tenantClerkId], references: [clerkId])
+  payments      Payment[]
+
+  @@index([tenantClerkId])
+  @@index([propertyId])
+  @@index([startDate])
+  @@index([endDate])
+}
+
+model Payment {
+  id                Int           @id @default(autoincrement())
+  amountDue         Float
+  amountPaid        Float         @default(0)
+  dueDate           DateTime
+  paymentDate       DateTime?
+  paymentStatus     PaymentStatus @default(Pending)
+  leaseId           Int
+  paystackReference String?       @unique
+  createdAt         DateTime      @default(now())
+  lease             Lease         @relation(fields: [leaseId], references: [id])
+
+  @@index([leaseId])
+  @@index([paymentStatus])
+  @@index([dueDate])
+  @@index([paystackReference])
+}
+
+model PropertyView {
+  id            String   @id @default(cuid())
+  tenantClerkId String
+  propertyId    Int
+  viewedAt      DateTime @default(now())
+  property      Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  tenant        Tenant   @relation(fields: [tenantClerkId], references: [clerkId], onDelete: Cascade)
+
+  @@index([tenantClerkId])
+  @@index([propertyId])
+  @@index([viewedAt])
+  @@map("property_views")
+}
+
+model LandlordVerification {
+  id                Int                @id @default(autoincrement())
+  managerClerkId    String             @unique
+  ghanaCardFrontUrl String
+  ghanaCardBackUrl  String
+  phoneNumber       String
+  status            VerificationStatus @default(Pending)
+  rejectionReason   String?
+  submittedAt       DateTime           @default(now())
+  reviewedAt        DateTime?
+  reviewedByAdminId Int?
+  manager           Manager            @relation(fields: [managerClerkId], references: [clerkId])
+
+  @@index([status])
+  @@index([managerClerkId])
+}
+
+model Blacklist {
+  id          Int      @id @default(autoincrement())
+  phoneNumber String?
+  email       String?
+  ghanaCardId String?
+  reason      String
+  createdAt   DateTime @default(now())
+  createdBy   Int
+
+  @@index([phoneNumber])
+  @@index([email])
+  @@index([ghanaCardId])
+}
+
+model Report {
+  id          Int       @id @default(autoincrement())
+  propertyId  Int
+  reportedBy  String
+  reason      String
+  description String?
+  isResolved  Boolean   @default(false)
+  createdAt   DateTime  @default(now())
+  resolvedAt  DateTime?
+  resolvedBy  Int?
+  property    Property  @relation(fields: [propertyId], references: [id])
+
+  @@index([propertyId])
+  @@index([isResolved])
+  @@index([createdAt])
+}
+
+model AuditLog {
+  id        Int      @id @default(autoincrement())
+  adminId   Int
+  action    String
+  target    String
+  details   String?
+  createdAt DateTime @default(now())
+  admin     User     @relation(fields: [adminId], references: [id])
+
+  @@index([adminId])
+  @@index([createdAt])
+  @@index([action])
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model spatial_ref_sys {
+  srid      Int     @id
+  auth_name String? @db.VarChar(256)
+  auth_srid Int?
+  srtext    String? @db.VarChar(2048)
+  proj4text String? @db.VarChar(2048)
+}
+
+enum Role {
+  TENANT
+  MANAGER
+  ADMIN
 }
 
 enum Highlight {
@@ -92,225 +342,4 @@ enum VerificationStatus {
   Pending
   Approved
   Rejected
-}
-
-model Property {
-  id                Int            @id @default(autoincrement())
-  name              String
-  description       String
-  pricePerMonth     Float
-  securityDeposit   Float
-  applicationFee    Float
-  photoUrls         String[]
-  amenities         Amenity[]
-  highlights        Highlight[]
-  isPetsAllowed     Boolean        @default(false)
-  isParkingIncluded Boolean        @default(false)
-  beds              Int
-  baths             Float
-  squareFeet        Int
-  propertyType      PropertyType
-  postedDate        DateTime       @default(now())
-  status            PropertyStatus @default(Pending)
-  averageRating     Float?         @default(0)
-  numberOfReviews   Int?           @default(0)
-  locationId        Int
-  managerClerkId    String
-
-  location     Location       @relation(fields: [locationId], references: [id])
-  manager      Manager        @relation(fields: [managerClerkId], references: [clerkId])
-  leases       Lease[]
-  applications Application[]
-  favoritedBy  Tenant[]       @relation("TenantFavorites")
-  tenants      Tenant[]       @relation("TenantProperties")
-  views        PropertyView[]
-  reports      Report[]
-
-  @@index([managerClerkId])
-  @@index([locationId])
-  @@index([propertyType])
-  @@index([pricePerMonth])
-  @@index([status])
-}
-
-model Manager {
-  id          Int     @id @default(autoincrement())
-  clerkId     String  @unique
-  name        String
-  email       String
-  phoneNumber String
-  isVerified  Boolean @default(false)
-
-  managedProperties Property[]
-  verification      LandlordVerification?
-}
-
-model Tenant {
-  id          Int    @id @default(autoincrement())
-  clerkId     String @unique
-  name        String
-  email       String
-  phoneNumber String
-
-  properties    Property[]     @relation("TenantProperties")
-  favorites     Property[]     @relation("TenantFavorites")
-  applications  Application[]
-  leases        Lease[]
-  propertyViews PropertyView[]
-}
-
-model Location {
-  id          Int                                   @id @default(autoincrement())
-  address     String
-  city        String
-  state       String
-  region      String?
-  country     String                                @default("Ghana")
-  postalCode  String
-  coordinates Unsupported("geography(Point, 4326)")
-
-  properties Property[]
-}
-
-model Application {
-  id              Int               @id @default(autoincrement())
-  applicationDate DateTime          @default(now())
-  status          ApplicationStatus @default(Pending)
-  propertyId      Int
-  tenantClerkId   String
-  name            String
-  email           String
-  phoneNumber     String
-  message         String?
-  leaseId         Int?              @unique
-
-  property Property @relation(fields: [propertyId], references: [id])
-  tenant   Tenant   @relation(fields: [tenantClerkId], references: [clerkId])
-  lease    Lease?   @relation(fields: [leaseId], references: [id])
-
-  @@index([tenantClerkId])
-  @@index([propertyId])
-  @@index([status])
-}
-
-model Lease {
-  id            Int      @id @default(autoincrement())
-  startDate     DateTime
-  endDate       DateTime
-  rent          Float
-  deposit       Float
-  propertyId    Int
-  tenantClerkId String
-
-  property    Property     @relation(fields: [propertyId], references: [id])
-  tenant      Tenant       @relation(fields: [tenantClerkId], references: [clerkId])
-  application Application?
-  payments    Payment[]
-
-  @@index([tenantClerkId])
-  @@index([propertyId])
-}
-
-model Payment {
-  id                Int           @id @default(autoincrement())
-  amountDue         Float
-  amountPaid        Float
-  dueDate           DateTime
-  paymentDate       DateTime?
-  paymentStatus     PaymentStatus @default(Pending)
-  leaseId           Int
-  paystackReference String?       @unique
-
-  lease Lease @relation(fields: [leaseId], references: [id])
-
-  @@index([leaseId])
-  @@index([paymentStatus])
-  @@index([dueDate])
-}
-
-model PropertyView {
-  id            String   @id @default(cuid())
-  tenantClerkId String
-  propertyId    Int
-  viewedAt      DateTime @default(now())
-
-  tenant   Tenant   @relation(fields: [tenantClerkId], references: [clerkId], onDelete: Cascade)
-  property Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
-
-  @@index([tenantClerkId])
-  @@index([propertyId])
-  @@index([viewedAt])
-  @@map("property_views")
-}
-
-model Admin {
-  id        Int      @id @default(autoincrement())
-  clerkId   String   @unique
-  name      String
-  email     String   @unique
-  createdAt DateTime @default(now())
-
-  auditLogs AuditLog[]
-}
-
-model LandlordVerification {
-  id                Int                @id @default(autoincrement())
-  managerClerkId    String             @unique
-  ghanaCardFrontUrl String
-  ghanaCardBackUrl  String
-  phoneNumber       String
-  status            VerificationStatus @default(Pending)
-  rejectionReason   String?
-  submittedAt       DateTime           @default(now())
-  reviewedAt        DateTime?
-  reviewedByAdminId Int?
-
-  manager Manager @relation(fields: [managerClerkId], references: [clerkId])
-
-  @@index([status])
-  @@index([managerClerkId])
-}
-
-model Blacklist {
-  id          Int      @id @default(autoincrement())
-  phoneNumber String?
-  email       String?
-  ghanaCardId String?
-  reason      String
-  createdAt   DateTime @default(now())
-  createdBy   Int
-
-  @@index([phoneNumber])
-  @@index([email])
-}
-
-model Report {
-  id          Int       @id @default(autoincrement())
-  propertyId  Int
-  reportedBy  String
-  reason      String
-  description String?
-  isResolved  Boolean   @default(false)
-  createdAt   DateTime  @default(now())
-  resolvedAt  DateTime?
-  resolvedBy  Int?
-
-  property Property @relation(fields: [propertyId], references: [id])
-
-  @@index([propertyId])
-  @@index([isResolved])
-}
-
-model AuditLog {
-  id        Int      @id @default(autoincrement())
-  adminId   Int
-  action    String
-  target    String
-  details   String?
-  createdAt DateTime @default(now())
-
-  admin Admin @relation(fields: [adminId], references: [id])
-
-  @@index([adminId])
-  @@index([createdAt])
 }

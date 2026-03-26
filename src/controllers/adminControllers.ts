@@ -1,7 +1,7 @@
 import { Request, Response } from "express";
 import { prisma } from "../lib/prisma";
 
-// ── HELPER: Create Audit Log ─────────────────────────────
+// ── HELPER: Create Audit Log ──────────────────────────────
 const createAuditLog = async (
   adminClerkId: string,
   action: string,
@@ -9,7 +9,7 @@ const createAuditLog = async (
   details?: string
 ) => {
   try {
-    const admin = await prisma.admin.findUnique({ where: { clerkId: adminClerkId } });
+    const admin = await prisma.user.findUnique({ where: { clerkId: adminClerkId } });
     if (admin) {
       await prisma.auditLog.create({
         data: { adminId: admin.id, action, target, details },
@@ -20,17 +20,22 @@ const createAuditLog = async (
   }
 };
 
-// ── ADMIN AUTH ───────────────────────────────────────────
+// ── ADMIN AUTH ────────────────────────────────────────────
 export const createAdmin = async (req: Request, res: Response) => {
   try {
     const { clerkId, name, email } = req.body;
     if (!clerkId || !name || !email)
       return res.status(400).json({ message: "clerkId, name and email are required" });
 
-    const existing = await prisma.admin.findUnique({ where: { clerkId } });
-    if (existing) return res.status(200).json(existing);
+    const existing = await prisma.user.findUnique({ where: { clerkId } });
+    if (existing && existing.role === "ADMIN") return res.status(200).json(existing);
 
-    const admin = await prisma.admin.create({ data: { clerkId, name, email } });
+    const admin = await prisma.user.upsert({
+      where: { clerkId },
+      update: { role: "ADMIN" },
+      create: { clerkId, name, email, role: "ADMIN" },
+    });
+
     res.status(201).json(admin);
   } catch (error: any) {
     res.status(500).json({ message: "Failed to create admin", error: error.message });
@@ -40,15 +45,16 @@ export const createAdmin = async (req: Request, res: Response) => {
 export const getAdmin = async (req: Request, res: Response) => {
   try {
     const { clerkId } = req.params;
-    const admin = await prisma.admin.findUnique({ where: { clerkId } });
-    if (!admin) return res.status(404).json({ message: "Admin not found" });
+    const admin = await prisma.user.findUnique({ where: { clerkId } });
+    if (!admin || admin.role !== "ADMIN")
+      return res.status(404).json({ message: "Admin not found" });
     res.status(200).json(admin);
   } catch (error: any) {
     res.status(500).json({ message: "Failed to get admin", error: error.message });
   }
 };
 
-// ── DASHBOARD ───────────────────────────────────────────
+// ── DASHBOARD ─────────────────────────────────────────────
 export const getDashboardStats = async (req: Request, res: Response) => {
   try {
     const [
@@ -80,8 +86,18 @@ export const getDashboardStats = async (req: Request, res: Response) => {
     ]);
 
     res.status(200).json({
-      properties: { total: totalProperties, pending: pendingProperties, approved: approvedProperties, rejected: totalProperties - pendingProperties - approvedProperties },
-      managers: { total: totalManagers, verified: verifiedManagers, unverified: totalManagers - verifiedManagers, pendingVerifications },
+      properties: {
+        total: totalProperties,
+        pending: pendingProperties,
+        approved: approvedProperties,
+        rejected: totalProperties - pendingProperties - approvedProperties,
+      },
+      managers: {
+        total: totalManagers,
+        verified: verifiedManagers,
+        unverified: totalManagers - verifiedManagers,
+        pendingVerifications,
+      },
       tenants: { total: totalTenants },
       applications: { total: totalApplications, pending: pendingApplications },
       reports: { total: totalReports, unresolved: unresolvedReports },
@@ -92,11 +108,15 @@ export const getDashboardStats = async (req: Request, res: Response) => {
   }
 };
 
-// ── PROPERTY MODERATION ─────────────────────────────────
+// ── PROPERTY MODERATION ───────────────────────────────────
 export const getAllProperties = async (req: Request, res: Response) => {
   try {
     const properties = await prisma.property.findMany({
-      include: { manager: true, location: true, reports: true },
+      include: {
+        manager: { include: { user: true } },
+        location: true,
+        reports: true,
+      },
       orderBy: { postedDate: "desc" },
     });
     res.status(200).json(properties);
@@ -109,7 +129,10 @@ export const getPendingProperties = async (req: Request, res: Response) => {
   try {
     const properties = await prisma.property.findMany({
       where: { status: "Pending" },
-      include: { manager: true, location: true },
+      include: {
+        manager: { include: { user: true } },
+        location: true,
+      },
       orderBy: { postedDate: "desc" },
     });
     res.status(200).json(properties);
@@ -130,7 +153,6 @@ export const approveProperty = async (req: Request, res: Response) => {
     });
 
     await createAuditLog(adminClerkId, "APPROVE_PROPERTY", `Property #${id}`, `Property "${property.name}" approved`);
-
     res.status(200).json({ message: "Property approved successfully", property });
   } catch (error: any) {
     res.status(500).json({ message: "Failed to approve property", error: error.message });
@@ -150,19 +172,18 @@ export const rejectProperty = async (req: Request, res: Response) => {
     });
 
     await createAuditLog(adminClerkId, "REJECT_PROPERTY", `Property #${id}`, `Property "${property.name}" rejected. Reason: ${reason}`);
-
     res.status(200).json({ message: "Property rejected successfully", property });
   } catch (error: any) {
     res.status(500).json({ message: "Failed to reject property", error: error.message });
   }
 };
 
-// ── LANDLORD VERIFICATION ───────────────────────────────
+// ── LANDLORD VERIFICATION ─────────────────────────────────
 export const getPendingVerifications = async (req: Request, res: Response) => {
   try {
     const verifications = await prisma.landlordVerification.findMany({
       where: { status: "Pending" },
-      include: { manager: true },
+      include: { manager: { include: { user: true } } },
       orderBy: { submittedAt: "desc" },
     });
     res.status(200).json(verifications);
@@ -177,16 +198,23 @@ export const approveVerification = async (req: Request, res: Response) => {
     const adminClerkId = req.auth?.userId;
     if (!adminClerkId) return res.status(401).json({ message: "Unauthorized" });
 
-    const admin = await prisma.admin.findUnique({ where: { clerkId: adminClerkId } });
+    const admin = await prisma.user.findUnique({ where: { clerkId: adminClerkId } });
 
     const verification = await prisma.landlordVerification.update({
       where: { id: Number(id) },
-      data: { status: "Approved", reviewedAt: new Date(), reviewedByAdminId: admin?.id },
+      data: {
+        status: "Approved",
+        reviewedAt: new Date(),
+        reviewedByAdminId: admin?.id,
+      },
     });
 
-    await prisma.manager.update({ where: { clerkId: verification.managerClerkId }, data: { isVerified: true } });
-    await createAuditLog(adminClerkId, "APPROVE_VERIFICATION", `Verification #${id}`, `Landlord ${verification.managerClerkId} verified`);
+    await prisma.manager.update({
+      where: { clerkId: verification.managerClerkId },
+      data: { isVerified: true },
+    });
 
+    await createAuditLog(adminClerkId, "APPROVE_VERIFICATION", `Verification #${id}`, `Landlord ${verification.managerClerkId} verified`);
     res.status(200).json({ message: "Landlord verified successfully", verification });
   } catch (error: any) {
     res.status(500).json({ message: "Failed to approve verification", error: error.message });
@@ -200,11 +228,16 @@ export const rejectVerification = async (req: Request, res: Response) => {
     const adminClerkId = req.auth?.userId;
     if (!adminClerkId) return res.status(401).json({ message: "Unauthorized" });
 
-    const admin = await prisma.admin.findUnique({ where: { clerkId: adminClerkId } });
+    const admin = await prisma.user.findUnique({ where: { clerkId: adminClerkId } });
 
     const verification = await prisma.landlordVerification.update({
       where: { id: Number(id) },
-      data: { status: "Rejected", rejectionReason: reason, reviewedAt: new Date(), reviewedByAdminId: admin?.id },
+      data: {
+        status: "Rejected",
+        rejectionReason: reason,
+        reviewedAt: new Date(),
+        reviewedByAdminId: admin?.id,
+      },
     });
 
     await createAuditLog(adminClerkId, "REJECT_VERIFICATION", `Verification #${id}`, `Landlord ${verification.managerClerkId} rejected. Reason: ${reason}`);
@@ -214,10 +247,17 @@ export const rejectVerification = async (req: Request, res: Response) => {
   }
 };
 
-// ── USER MANAGEMENT ───────────────────────────────
+// ── USER MANAGEMENT ───────────────────────────────────────
 export const getAllManagers = async (req: Request, res: Response) => {
   try {
-    const managers = await prisma.manager.findMany({ include: { managedProperties: true, verification: true }, orderBy: { id: "desc" } });
+    const managers = await prisma.manager.findMany({
+      include: {
+        user: true,
+        managedProperties: true,
+        verification: true,
+      },
+      orderBy: { id: "desc" },
+    });
     res.status(200).json(managers);
   } catch (error: any) {
     res.status(500).json({ message: "Failed to get managers", error: error.message });
@@ -226,17 +266,26 @@ export const getAllManagers = async (req: Request, res: Response) => {
 
 export const getAllTenants = async (req: Request, res: Response) => {
   try {
-    const tenants = await prisma.tenant.findMany({ include: { applications: true, leases: true }, orderBy: { id: "desc" } });
+    const tenants = await prisma.tenant.findMany({
+      include: {
+        user: true,
+        applications: true,
+        leases: true,
+      },
+      orderBy: { id: "desc" },
+    });
     res.status(200).json(tenants);
   } catch (error: any) {
     res.status(500).json({ message: "Failed to get tenants", error: error.message });
   }
 };
 
-// ── BLACKLIST ───────────────────────────────
+// ── BLACKLIST ─────────────────────────────────────────────
 export const getBlacklist = async (req: Request, res: Response) => {
   try {
-    const blacklist = await prisma.blacklist.findMany({ orderBy: { createdAt: "desc" } });
+    const blacklist = await prisma.blacklist.findMany({
+      orderBy: { createdAt: "desc" },
+    });
     res.status(200).json(blacklist);
   } catch (error: any) {
     res.status(500).json({ message: "Failed to get blacklist", error: error.message });
@@ -249,7 +298,7 @@ export const addToBlacklist = async (req: Request, res: Response) => {
     const adminClerkId = req.auth?.userId;
     if (!adminClerkId) return res.status(401).json({ message: "Unauthorized" });
 
-    const admin = await prisma.admin.findUnique({ where: { clerkId: adminClerkId } });
+    const admin = await prisma.user.findUnique({ where: { clerkId: adminClerkId } });
     if (!admin) return res.status(404).json({ message: "Admin not found" });
 
     const entry = await prisma.blacklist.create({
@@ -278,10 +327,13 @@ export const removeFromBlacklist = async (req: Request, res: Response) => {
   }
 };
 
-// ── REPORTS ───────────────────────────────
+// ── REPORTS ───────────────────────────────────────────────
 export const getAllReports = async (req: Request, res: Response) => {
   try {
-    const reports = await prisma.report.findMany({ include: { property: true }, orderBy: { createdAt: "desc" } });
+    const reports = await prisma.report.findMany({
+      include: { property: true },
+      orderBy: { createdAt: "desc" },
+    });
     res.status(200).json(reports);
   } catch (error: any) {
     res.status(500).json({ message: "Failed to get reports", error: error.message });
@@ -294,7 +346,7 @@ export const resolveReport = async (req: Request, res: Response) => {
     const adminClerkId = req.auth?.userId;
     if (!adminClerkId) return res.status(401).json({ message: "Unauthorized" });
 
-    const admin = await prisma.admin.findUnique({ where: { clerkId: adminClerkId } });
+    const admin = await prisma.user.findUnique({ where: { clerkId: adminClerkId } });
 
     const report = await prisma.report.update({
       where: { id: Number(id) },
@@ -308,16 +360,40 @@ export const resolveReport = async (req: Request, res: Response) => {
   }
 };
 
-// ── AUDIT LOGS ─────────────────────────────
+// ── AUDIT LOGS ────────────────────────────────────────────
 export const getAuditLogs = async (req: Request, res: Response) => {
   try {
     const logs = await prisma.auditLog.findMany({
       include: { admin: true },
       orderBy: { createdAt: "desc" },
-      take: 100, // latest 100 logs
+      take: 100,
     });
     res.status(200).json(logs);
   } catch (error: any) {
     res.status(500).json({ message: "Failed to get audit logs", error: error.message });
+  }
+};
+
+// ── ADMIN MANAGEMENT ──────────────────────────────────────
+export const deleteAdmin = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const adminClerkId = req.auth?.userId;
+    if (!adminClerkId) return res.status(401).json({ message: "Unauthorized" });
+
+    const currentAdmin = await prisma.user.findUnique({ where: { clerkId: adminClerkId } });
+    if (currentAdmin?.id === parseInt(id)) {
+      return res.status(400).json({ message: "Cannot delete your own admin account" });
+    }
+
+    await prisma.user.update({
+      where: { id: parseInt(id) },
+      data: { role: "TENANT" },
+    });
+
+    await createAuditLog(adminClerkId, "DELETE_ADMIN", `Admin #${id}`, `Admin access revoked`);
+    res.status(200).json({ message: "Admin deleted successfully" });
+  } catch (error: any) {
+    res.status(500).json({ message: "Failed to delete admin", error: error.message });
   }
 };

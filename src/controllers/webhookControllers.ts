@@ -49,62 +49,107 @@ export const handleClerkWebhook = async (req: Request, res: Response) => {
 
 async function handleUserCreated(data: any) {
   const { id, email_addresses, first_name, last_name, phone_numbers, public_metadata } = data;
+
   const email = email_addresses?.[0]?.email_address || "";
   const name = `${first_name || ""} ${last_name || ""}`.trim() || "User";
   const phoneNumber = phone_numbers?.[0]?.phone_number || "";
   const userType = (public_metadata?.userType as string) || "tenant";
 
-  const existingTenant = await prisma.tenant.findUnique({ where: { clerkId: id } });
-  if (!existingTenant) {
-    const tenant = await prisma.tenant.create({
-      data: { clerkId: id, name, email, phoneNumber },
-    });
-    console.log(`✅ Tenant created: ${tenant.name}`);
+  // ✅ 1. Create User FIRST
+  const user = await prisma.user.upsert({
+    where: { clerkId: id },
+    update: { email, name, phoneNumber },
+    create: {
+      clerkId: id,
+      email,
+      name,
+      phoneNumber,
+      role: userType === "admin" ? "ADMIN" : userType === "manager" ? "MANAGER" : "TENANT",
+    },
+  });
+
+  console.log(`✅ User created/updated: ${user.name} (${user.role})`);
+
+  // ✅ 2. If Admin — no profile needed
+  if (user.role === "ADMIN") {
+    console.log(`✅ Admin user registered: ${user.name}`);
+    return;
   }
 
-  if (userType === "manager") {
-    const existingManager = await prisma.manager.findUnique({ where: { clerkId: id } });
-    if (!existingManager) {
-      const manager = await prisma.manager.create({
-        data: { clerkId: id, name, email, phoneNumber },
+  // ✅ 3. If Tenant — create Tenant profile
+  if (user.role === "TENANT") {
+    const existingTenant = await prisma.tenant.findUnique({
+      where: { userId: user.id },
+    });
+
+    if (!existingTenant) {
+      await prisma.tenant.create({
+        data: {
+          clerkId: id,
+          userId: user.id,
+          phoneNumber,
+        },
       });
-      console.log(`✅ Manager created: ${manager.name}`);
+      console.log(`✅ Tenant profile created for: ${user.name}`);
+    }
+  }
+
+  // ✅ 4. If Manager — create Manager profile
+  if (user.role === "MANAGER") {
+    const existingManager = await prisma.manager.findUnique({
+      where: { userId: user.id },
+    });
+
+    if (!existingManager) {
+      await prisma.manager.create({
+        data: {
+          clerkId: id,
+          userId: user.id,
+        },
+      });
+      console.log(`✅ Manager profile created for: ${user.name}`);
     }
   }
 }
 
 async function handleUserUpdated(data: any) {
   const { id, email_addresses, first_name, last_name, phone_numbers } = data;
+
   const email = email_addresses?.[0]?.email_address || "";
   const name = `${first_name || ""} ${last_name || ""}`.trim();
   const phoneNumber = phone_numbers?.[0]?.phone_number || "";
 
-  try {
-    await prisma.tenant.update({
-      where: { clerkId: id },
-      data: { ...(name && { name }), ...(email && { email }), ...(phoneNumber && { phoneNumber }) },
-    });
-  } catch (err) {
-    console.log(`ℹ️ Tenant ${id} not found for update (may be manager-only)`);
+  const user = await prisma.user.findUnique({
+    where: { clerkId: id },
+  });
+
+  if (!user) {
+    console.log(`⚠️ User not found for update: ${id}`);
+    return;
   }
 
-  try {
-    await prisma.manager.update({
-      where: { clerkId: id },
-      data: { ...(name && { name }), ...(email && { email }), ...(phoneNumber && { phoneNumber }) },
-    });
-  } catch (err) {
-    console.log(`ℹ️ Manager ${id} not found for update (may be tenant-only)`);
-  }
+  // ✅ Update ONLY User table
+  await prisma.user.update({
+    where: { clerkId: id },
+    data: {
+      ...(name && { name }),
+      ...(email && { email }),
+      ...(phoneNumber && { phoneNumber }),
+    },
+  });
+
+  console.log(`✅ User updated: ${id}`);
 }
 
 async function handleUserDeleted(data: any) {
   const { id } = data;
-  try { await prisma.tenant.delete({ where: { clerkId: id } }); } catch (err) {
-    console.log(`ℹ️ Tenant ${id} not found for deletion`);
+
+  try {
+    await prisma.user.delete({
+      where: { clerkId: id },
+    });
+    console.log(`✅ User deleted: ${id}`);
+  } catch (err) {
+    console.log(`ℹ️ User ${id} not found for deletion`);
   }
-  try { await prisma.manager.delete({ where: { clerkId: id } }); } catch (err) {
-    console.log(`ℹ️ Manager ${id} not found for deletion`);
-  }
-  console.log(`✅ User deleted: ${id}`);
 }

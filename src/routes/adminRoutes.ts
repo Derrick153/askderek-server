@@ -18,6 +18,7 @@ import {
   getAllReports,
   resolveReport,
   getAuditLogs,
+  deleteAdmin,
 } from "../controllers/adminControllers";
 import { authMiddleware } from "../middleware/authMiddleware";
 import { requireAdmin } from "../middleware/requireAdmin";
@@ -50,6 +51,9 @@ router.get("/users/tenants", authMiddleware(), requireAdmin, getAllTenants);
 router.get("/blacklist", authMiddleware(), requireAdmin, getBlacklist);
 router.post("/blacklist", authMiddleware(), requireAdmin, addToBlacklist);
 router.delete("/blacklist/:id", authMiddleware(), requireAdmin, removeFromBlacklist);
+
+// ── ADMIN MANAGEMENT ────────────────────────────────────────
+router.delete("/:id", authMiddleware(), requireAdmin, deleteAdmin);
 
 // ── REPORTS ────────────────────────────────────────────────
 router.get("/reports", authMiddleware(), requireAdmin, getAllReports);

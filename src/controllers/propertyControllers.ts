@@ -2,6 +2,7 @@ import { Request, Response } from "express";
 import { prisma } from "../lib/prisma";
 import { wktToGeoJSON } from "@terraformer/wkt";
 import axios from "axios";
+import cloudinary from "../lib/cloudinary";
 
 const VALID_HIGHLIGHTS = new Set([
   "HighSpeedInternetAccess", "WasherDryer", "AirConditioning", "Heating",
@@ -28,6 +29,26 @@ const amenityMapping: Record<string, string> = {
   watertank: "WaterTank", dstv: "DSTV", balcony: "Balcony", tiled: "TiledFloors",
 };
 
+// ── HELPER: Upload file to Cloudinary ─────────────────────
+const uploadToCloudinary = (file: Express.Multer.File): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    const stream = cloudinary.uploader.upload_stream(
+      {
+        folder: "askderek/properties",
+        transformation: [
+          { width: 1200, quality: "auto", fetch_format: "auto" }
+        ],
+      },
+      (error, result) => {
+        if (error) reject(error);
+        else resolve(result!.secure_url);
+      }
+    );
+    stream.end(file.buffer);
+  });
+};
+
+// ── GET ALL PROPERTIES ────────────────────────────────────
 export const getProperties = async (req: Request, res: Response): Promise<void> => {
   try {
     const {
@@ -107,6 +128,7 @@ export const getProperties = async (req: Request, res: Response): Promise<void> 
   }
 };
 
+// ── GET SINGLE PROPERTY ───────────────────────────────────
 export const getProperty = async (req: Request, res: Response): Promise<void> => {
   try {
     const { id } = req.params;
@@ -115,7 +137,10 @@ export const getProperty = async (req: Request, res: Response): Promise<void> =>
       include: { location: true, manager: true, leases: true },
     });
 
-    if (!property) { res.status(404).json({ message: "Property not found" }); return; }
+    if (!property) {
+      res.status(404).json({ message: "Property not found" });
+      return;
+    }
 
     const coordinates: { coordinates: string }[] = await prisma.$queryRawUnsafe(
       `SELECT ST_asText(coordinates) as coordinates FROM "Location" WHERE id = $1`,
@@ -139,33 +164,62 @@ export const getProperty = async (req: Request, res: Response): Promise<void> =>
   }
 };
 
+// ── CREATE PROPERTY ───────────────────────────────────────
 export const createProperty = async (req: Request, res: Response): Promise<void> => {
   try {
     const files = (req.files as Express.Multer.File[]) || [];
-    const { address, city, state, country, postalCode, managerClerkId, latitude, longitude, photoUrls, ...propertyData } = req.body;
+    const {
+      address, city, state, country, postalCode,
+      managerClerkId, latitude, longitude, photoUrls,
+      ...propertyData
+    } = req.body;
 
     if (!managerClerkId || !address || !city) {
       res.status(400).json({ message: "managerClerkId, address, and city are required" });
       return;
     }
 
+    // ── HANDLE PHOTOS ──────────────────────────────────────
     let finalPhotoUrls: string[] = [];
-    if (photoUrls && Array.isArray(photoUrls)) finalPhotoUrls = photoUrls;
-    else if (photoUrls && typeof photoUrls === "string") finalPhotoUrls = [photoUrls];
-    else if (files.length > 0) finalPhotoUrls = files.map((f) => `placeholder-${f.originalname}`);
 
+    if (photoUrls && Array.isArray(photoUrls)) {
+      // Array of URLs sent directly
+      finalPhotoUrls = photoUrls;
+    } else if (photoUrls && typeof photoUrls === "string") {
+      // Comma separated URLs
+      finalPhotoUrls = photoUrls.split(",").map((url: string) => url.trim()).filter(Boolean);
+    } else if (files.length > 0) {
+      // Files uploaded — send to Cloudinary
+      console.log(`📸 Uploading ${files.length} photos to Cloudinary...`);
+      try {
+        finalPhotoUrls = await Promise.all(files.map(uploadToCloudinary));
+        console.log(`✅ Uploaded ${finalPhotoUrls.length} photos to Cloudinary`);
+      } catch (uploadError: any) {
+        console.error("❌ Cloudinary upload failed:", uploadError.message);
+        res.status(500).json({ message: "Failed to upload images. Please try again." });
+        return;
+      }
+    }
+
+    // ── GEOCODING ──────────────────────────────────────────
     let lng = longitude ? parseFloat(longitude) : 0;
     let lat = latitude ? parseFloat(latitude) : 0;
 
     if (!lng || !lat) {
       try {
         const geocodingUrl = `https://nominatim.openstreetmap.org/search?${new URLSearchParams({
-          street: address, city, country: country || "Ghana",
-          postalcode: postalCode || "", format: "json", limit: "1",
+          street: address,
+          city,
+          country: country || "Ghana",
+          postalcode: postalCode || "",
+          format: "json",
+          limit: "1",
         }).toString()}`;
+
         const geocodingResponse = await axios.get(geocodingUrl, {
           headers: { "User-Agent": "AskDerekRentals (askderek@gmail.com)" },
         });
+
         if (geocodingResponse.data[0]?.lon) {
           lng = parseFloat(geocodingResponse.data[0].lon);
           lat = parseFloat(geocodingResponse.data[0].lat);
@@ -177,13 +231,21 @@ export const createProperty = async (req: Request, res: Response): Promise<void>
       }
     }
 
+    // ── CREATE LOCATION ────────────────────────────────────
     const location: any[] = await prisma.$queryRawUnsafe(
       `INSERT INTO "Location" (address, city, state, country, "postalCode", coordinates)
        VALUES ($1, $2, $3, $4, $5, ST_SetSRID(ST_MakePoint($6, $7), 4326))
        RETURNING id, address, city, state, country, "postalCode", ST_AsText(coordinates) as coordinates`,
-      address, city, state || "Western", country || "Ghana", postalCode || "", lng, lat
+      address,
+      city,
+      state || "Western",
+      country || "Ghana",
+      postalCode || "",
+      lng,
+      lat
     );
 
+    // ── VALIDATE HIGHLIGHTS & AMENITIES ───────────────────
     const rawHighlights: string[] = typeof propertyData.highlights === "string"
       ? propertyData.highlights.split(",").map((h: string) => h.trim()).filter(Boolean)
       : Array.isArray(propertyData.highlights) ? propertyData.highlights : [];
@@ -195,12 +257,9 @@ export const createProperty = async (req: Request, res: Response): Promise<void>
     const filteredHighlights = rawHighlights.filter((h) => VALID_HIGHLIGHTS.has(h));
     const filteredAmenities = rawAmenities.filter((a) => VALID_AMENITIES.has(a));
 
-    if (rawHighlights.length !== filteredHighlights.length) {
-      console.log(`⚠️ Filtered invalid highlights: ${rawHighlights.filter(h => !VALID_HIGHLIGHTS.has(h)).join(", ")}`);
-    }
-
     const { highlights: _h, amenities: _a, ...cleanPropertyData } = propertyData;
 
+    // ── CREATE PROPERTY ────────────────────────────────────
     const newProperty = await prisma.property.create({
       data: {
         ...cleanPropertyData,
@@ -229,7 +288,7 @@ export const createProperty = async (req: Request, res: Response): Promise<void>
   }
 };
 
-// ─── GET PROPERTY LEASES ──────────────────────────────────────────────────────
+// ── GET PROPERTY LEASES ───────────────────────────────────
 export const getPropertyLeases = async (req: Request, res: Response): Promise<void> => {
   try {
     const { id } = req.params;
