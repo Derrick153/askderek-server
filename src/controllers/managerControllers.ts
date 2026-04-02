@@ -1,6 +1,7 @@
 ﻿import { Request, Response } from "express";
 import { prisma } from "../lib/prisma";
 import { wktToGeoJSON } from "@terraformer/wkt";
+import cloudinary from "../lib/cloudinary";
 
 // ── GET MANAGER ───────────────────────────────────────────
 export const getManager = async (req: Request, res: Response): Promise<void> => {
@@ -146,5 +147,106 @@ export const getManagerProperties = async (req: Request, res: Response): Promise
     res.json(formatted);
   } catch (error: any) {
     res.status(500).json({ message: `Error retrieving manager properties: ${error.message}` });
+  }
+};
+
+// ── SUBMIT VERIFICATION ───────────────────────────────────
+export const submitVerification = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const clerkId = req.auth?.userId;
+    if (!clerkId) {
+      res.status(401).json({ message: "Unauthorized" });
+      return;
+    }
+
+    const { phoneNumber } = req.body;
+    const files = req.files as { [fieldname: string]: Express.Multer.File[] };
+
+    if (!files?.ghanaCardFront || !files?.ghanaCardBack) {
+      res.status(400).json({ message: "Both sides of Ghana Card are required" });
+      return;
+    }
+
+    if (!phoneNumber) {
+      res.status(400).json({ message: "Phone number is required" });
+      return;
+    }
+
+    // ✅ Upload to Cloudinary
+    const uploadToCloudinary = (file: Express.Multer.File): Promise<string> => {
+      return new Promise((resolve, reject) => {
+        const stream = cloudinary.uploader.upload_stream(
+          { folder: "askderek/verifications" },
+          (error, result) => {
+            if (error) reject(error);
+            else resolve(result!.secure_url);
+          }
+        );
+        stream.end(file.buffer);
+      });
+    };
+
+    const frontUrl = await uploadToCloudinary(files.ghanaCardFront[0]);
+    const backUrl = await uploadToCloudinary(files.ghanaCardBack[0]);
+
+    // ✅ Save verification
+    const existing = await prisma.landlordVerification.findUnique({
+      where: { managerClerkId: clerkId },
+    });
+
+    if (existing) {
+      await prisma.landlordVerification.update({
+        where: { managerClerkId: clerkId },
+        data: {
+          ghanaCardFrontUrl: frontUrl,
+          ghanaCardBackUrl: backUrl,
+          phoneNumber,
+          status: "Pending",
+          submittedAt: new Date(),
+          rejectionReason: null,
+        },
+      });
+    } else {
+      await prisma.landlordVerification.create({
+        data: {
+          managerClerkId: clerkId,
+          ghanaCardFrontUrl: frontUrl,
+          ghanaCardBackUrl: backUrl,
+          phoneNumber,
+          status: "Pending",
+        },
+      });
+    }
+
+    console.log(`✅ Verification submitted for ${clerkId}`);
+    res.status(201).json({ message: "Verification submitted successfully!" });
+  } catch (error: any) {
+    console.error("❌ Verification error:", error.message);
+    res.status(500).json({ message: `Error submitting verification: ${error.message}` });
+  }
+};
+
+// -GET VERIFICATION STATUS ───────────────────────────────
+export const getVerificationStatus = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const clerkId = req.auth?.userId;
+
+    if (!clerkId) {
+      res.status(401).json({ message: "Unauthorized" });
+      return;
+    }
+
+    const verification = await prisma.landlordVerification.findUnique({
+      where: { managerClerkId: clerkId },
+    });
+
+    if (!verification) {
+      res.status(404).json({ message: "No verification found" });
+      return;
+    }
+
+    res.json(verification);
+  } catch (error: any) {
+    res.status(500).json({ message: `Error getting verification status: ${error.message}` });
   }
 };

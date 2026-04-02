@@ -1,5 +1,10 @@
 import { Request, Response } from "express";
 import { prisma } from "../lib/prisma";
+import {
+  sendPropertyApprovedEmail,
+  sendPropertyRejectedEmail,
+  sendVerificationApprovedEmail,
+} from "../lib/email";
 
 // ── HELPER: Create Audit Log ──────────────────────────────
 const createAuditLog = async (
@@ -153,6 +158,20 @@ export const approveProperty = async (req: Request, res: Response) => {
     });
 
     await createAuditLog(adminClerkId, "APPROVE_PROPERTY", `Property #${id}`, `Property "${property.name}" approved`);
+
+    // ✅ Send email notification
+    try {
+      const manager = await prisma.manager.findUnique({
+        where: { clerkId: property.managerClerkId },
+        include: { user: true },
+      });
+      if (manager?.user?.email) {
+        await sendPropertyApprovedEmail(manager.user.email, manager.user.name, property.name);
+      }
+    } catch (e) {
+      console.error("Email notification failed:", e);
+    }
+
     res.status(200).json({ message: "Property approved successfully", property });
   } catch (error: any) {
     res.status(500).json({ message: "Failed to approve property", error: error.message });
@@ -172,6 +191,20 @@ export const rejectProperty = async (req: Request, res: Response) => {
     });
 
     await createAuditLog(adminClerkId, "REJECT_PROPERTY", `Property #${id}`, `Property "${property.name}" rejected. Reason: ${reason}`);
+
+    // ✅ Send email notification
+    try {
+      const manager = await prisma.manager.findUnique({
+        where: { clerkId: property.managerClerkId },
+        include: { user: true },
+      });
+      if (manager?.user?.email) {
+        await sendPropertyRejectedEmail(manager.user.email, manager.user.name, property.name, reason);
+      }
+    } catch (e) {
+      console.error("Email notification failed:", e);
+    }
+
     res.status(200).json({ message: "Property rejected successfully", property });
   } catch (error: any) {
     res.status(500).json({ message: "Failed to reject property", error: error.message });
@@ -215,6 +248,20 @@ export const approveVerification = async (req: Request, res: Response) => {
     });
 
     await createAuditLog(adminClerkId, "APPROVE_VERIFICATION", `Verification #${id}`, `Landlord ${verification.managerClerkId} verified`);
+
+    // ✅ Send email notification
+    try {
+      const manager = await prisma.manager.findUnique({
+        where: { clerkId: verification.managerClerkId },
+        include: { user: true },
+      });
+      if (manager?.user?.email) {
+        await sendVerificationApprovedEmail(manager.user.email, manager.user.name);
+      }
+    } catch (e) {
+      console.error("Email notification failed:", e);
+    }
+
     res.status(200).json({ message: "Landlord verified successfully", verification });
   } catch (error: any) {
     res.status(500).json({ message: "Failed to approve verification", error: error.message });
