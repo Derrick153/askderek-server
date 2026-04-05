@@ -53,12 +53,18 @@ export const getProperties = async (req: Request, res: Response): Promise<void> 
   try {
     const {
       favoriteIds, priceMin, priceMax, beds, baths, propertyType,
-      squareFeetMin, squareFeetMax, amenities, availableFrom, latitude, longitude, location,
+      squareFeetMin, squareFeetMax, amenities, availableFrom,
+      latitude, longitude, location,
+      // ✅ NEW — Ghana location filters
+      region, city, area,
     } = req.query;
 
     const conditions: string[] = [];
     const params: any[] = [];
     let paramIndex = 1;
+
+    // ── Only show approved properties to public ───────────
+    conditions.push(`p.status = 'Approved'`);
 
     if (favoriteIds) {
       const ids = (favoriteIds as string).split(",").map(Number);
@@ -66,13 +72,17 @@ export const getProperties = async (req: Request, res: Response): Promise<void> 
       conditions.push(`p.id IN (${placeholders})`);
       params.push(...ids);
     }
+
     if (priceMin) { conditions.push(`p."pricePerMonth" >= $${paramIndex++}`); params.push(Number(priceMin)); }
     if (priceMax) { conditions.push(`p."pricePerMonth" <= $${paramIndex++}`); params.push(Number(priceMax)); }
     if (beds && beds !== "any") { conditions.push(`p.beds >= $${paramIndex++}`); params.push(Number(beds)); }
     if (baths && baths !== "any") { conditions.push(`p.baths >= $${paramIndex++}`); params.push(Number(baths)); }
     if (squareFeetMin) { conditions.push(`p."squareFeet" >= $${paramIndex++}`); params.push(Number(squareFeetMin)); }
     if (squareFeetMax) { conditions.push(`p."squareFeet" <= $${paramIndex++}`); params.push(Number(squareFeetMax)); }
-    if (propertyType && propertyType !== "any") { conditions.push(`p."propertyType" = $${paramIndex++}`); params.push(propertyType); }
+    if (propertyType && propertyType !== "any") {
+      conditions.push(`p."propertyType" = $${paramIndex++}`);
+      params.push(propertyType);
+    }
 
     if (amenities && amenities !== "any") {
       const amenitiesArray = (amenities as string).split(",").map((a) => a.trim().toLowerCase());
@@ -88,26 +98,62 @@ export const getProperties = async (req: Request, res: Response): Promise<void> 
     }
 
     if (availableFrom && availableFrom !== "any") {
-      conditions.push(`EXISTS (SELECT 1 FROM "Lease" l2 WHERE l2."propertyId" = p.id AND l2."startDate"::date <= $${paramIndex++}::date)`);
+      conditions.push(
+        `EXISTS (SELECT 1 FROM "Lease" l2 WHERE l2."propertyId" = p.id AND l2."startDate"::date <= $${paramIndex++}::date)`
+      );
       params.push(availableFrom);
     }
 
-    if (latitude && longitude && latitude !== "0" && longitude !== "0") {
-      const lat = parseFloat(latitude as string);
-      const lng = parseFloat(longitude as string);
-      conditions.push(`ST_DWithin(l.coordinates::geography, ST_SetSRID(ST_MakePoint($${paramIndex++}, $${paramIndex++}), 4326)::geography, $${paramIndex++})`);
-      params.push(lng, lat, 50000);
-    } else if (location) {
-      const search = (location as string).trim();
-      conditions.push(`(LOWER(l.city) LIKE LOWER($${paramIndex++}) OR LOWER(l.address) LIKE LOWER($${paramIndex++}))`);
-      params.push(`%${search}%`, `%${search}%`);
+    // ── ✅ Ghana location filters ─────────────────────────
+    // These filter on the Location table (joined as `l`)
+    // Region — exact match (e.g. "Greater Accra Region")
+    if (region && region !== "any") {
+      conditions.push(`LOWER(l.region) = LOWER($${paramIndex++})`);
+      params.push(region);
     }
 
-    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+    // City — exact match (e.g. "Accra", "Kumasi")
+    if (city && city !== "any") {
+      conditions.push(`LOWER(l.city) = LOWER($${paramIndex++})`);
+      params.push(city);
+    }
+
+    // Area — exact match on the area field (e.g. "East Legon")
+    if (area && area !== "any") {
+      conditions.push(`LOWER(l.area) = LOWER($${paramIndex++})`);
+      params.push(area);
+    }
+
+    // ── Geo / keyword search (only if no structured location) ──
+    if (!region && !city && !area) {
+      if (latitude && longitude && latitude !== "0" && longitude !== "0") {
+        const lat = parseFloat(latitude as string);
+        const lng = parseFloat(longitude as string);
+        conditions.push(
+          `ST_DWithin(l.coordinates::geography, ST_SetSRID(ST_MakePoint($${paramIndex++}, $${paramIndex++}), 4326)::geography, $${paramIndex++})`
+        );
+        params.push(lng, lat, 50000);
+      } else if (location) {
+        const search = (location as string).trim();
+        conditions.push(
+          `(LOWER(l.city) LIKE LOWER($${paramIndex++}) OR LOWER(l.address) LIKE LOWER($${paramIndex++}) OR LOWER(l.region) LIKE LOWER($${paramIndex++}) OR LOWER(l.area) LIKE LOWER($${paramIndex++}))`
+        );
+        params.push(`%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`);
+      }
+    }
+
+    const whereClause = `WHERE ${conditions.join(" AND ")}`;
+
     const query = `
       SELECT p.*, json_build_object(
-        'id', l.id, 'address', l.address, 'city', l.city, 'state', l.state,
-        'country', l.country, 'postalCode', l."postalCode",
+        'id', l.id,
+        'address', l.address,
+        'city', l.city,
+        'state', l.state,
+        'region', l.region,
+        'area', l.area,
+        'country', l.country,
+        'postalCode', l."postalCode",
         'coordinates', json_build_object(
           'longitude', ST_X(l."coordinates"::geometry),
           'latitude', ST_Y(l."coordinates"::geometry)
@@ -171,6 +217,8 @@ export const createProperty = async (req: Request, res: Response): Promise<void>
     const {
       address, city, state, country, postalCode,
       managerClerkId, latitude, longitude, photoUrls,
+      // ✅ NEW — receive region and area from the form
+      region, area,
       ...propertyData
     } = req.body;
 
@@ -183,13 +231,10 @@ export const createProperty = async (req: Request, res: Response): Promise<void>
     let finalPhotoUrls: string[] = [];
 
     if (photoUrls && Array.isArray(photoUrls)) {
-      // Array of URLs sent directly
       finalPhotoUrls = photoUrls;
     } else if (photoUrls && typeof photoUrls === "string") {
-      // Comma separated URLs
       finalPhotoUrls = photoUrls.split(",").map((url: string) => url.trim()).filter(Boolean);
     } else if (files.length > 0) {
-      // Files uploaded — send to Cloudinary
       console.log(`📸 Uploading ${files.length} photos to Cloudinary...`);
       try {
         finalPhotoUrls = await Promise.all(files.map(uploadToCloudinary));
@@ -231,14 +276,16 @@ export const createProperty = async (req: Request, res: Response): Promise<void>
       }
     }
 
-    // ── CREATE LOCATION ────────────────────────────────────
+    // ── ✅ CREATE LOCATION (now saves region and area) ─────
     const location: any[] = await prisma.$queryRawUnsafe(
-      `INSERT INTO "Location" (address, city, state, country, "postalCode", coordinates)
-       VALUES ($1, $2, $3, $4, $5, ST_SetSRID(ST_MakePoint($6, $7), 4326))
-       RETURNING id, address, city, state, country, "postalCode", ST_AsText(coordinates) as coordinates`,
+      `INSERT INTO "Location" (address, city, state, region, area, country, "postalCode", coordinates)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, ST_SetSRID(ST_MakePoint($8, $9), 4326))
+       RETURNING id, address, city, state, region, area, country, "postalCode", ST_AsText(coordinates) as coordinates`,
       address,
       city,
-      state || "Western",
+      state || region || "Western",   // state mirrors region for compatibility
+      region || null,                  // ✅ save region e.g. "Greater Accra Region"
+      area   || null,                  // ✅ save area  e.g. "East Legon"
       country || "Ghana",
       postalCode || "",
       lng,
@@ -255,7 +302,7 @@ export const createProperty = async (req: Request, res: Response): Promise<void>
       : Array.isArray(propertyData.amenities) ? propertyData.amenities : [];
 
     const filteredHighlights = rawHighlights.filter((h) => VALID_HIGHLIGHTS.has(h));
-    const filteredAmenities = rawAmenities.filter((a) => VALID_AMENITIES.has(a));
+    const filteredAmenities  = rawAmenities.filter((a) => VALID_AMENITIES.has(a));
 
     const { highlights: _h, amenities: _a, ...cleanPropertyData } = propertyData;
 
@@ -263,24 +310,24 @@ export const createProperty = async (req: Request, res: Response): Promise<void>
     const newProperty = await prisma.property.create({
       data: {
         ...cleanPropertyData,
-        photoUrls: finalPhotoUrls,
-        locationId: location[0].id,
+        photoUrls:         finalPhotoUrls,
+        locationId:        location[0].id,
         managerClerkId,
-        highlights: filteredHighlights,
-        amenities: filteredAmenities,
-        isPetsAllowed: propertyData.isPetsAllowed === "true" || propertyData.isPetsAllowed === true,
+        highlights:        filteredHighlights,
+        amenities:         filteredAmenities,
+        isPetsAllowed:     propertyData.isPetsAllowed === "true" || propertyData.isPetsAllowed === true,
         isParkingIncluded: propertyData.isParkingIncluded === "true" || propertyData.isParkingIncluded === true,
-        pricePerMonth: parseFloat(propertyData.pricePerMonth),
-        securityDeposit: parseFloat(propertyData.securityDeposit || "0"),
-        applicationFee: parseFloat(propertyData.applicationFee || "0"),
-        beds: parseInt(propertyData.beds),
-        baths: parseFloat(propertyData.baths),
-        squareFeet: parseInt(propertyData.squareFeet || "0"),
+        pricePerMonth:     parseFloat(propertyData.pricePerMonth),
+        securityDeposit:   parseFloat(propertyData.securityDeposit || "0"),
+        applicationFee:    parseFloat(propertyData.applicationFee || "0"),
+        beds:              parseInt(propertyData.beds),
+        baths:             parseFloat(propertyData.baths),
+        squareFeet:        propertyData.squareFeet ? parseInt(propertyData.squareFeet) : 0,
       },
       include: { location: true, manager: true },
     });
 
-    console.log(`✅ Property created: ${newProperty.name}`);
+    console.log(`✅ Property created: ${newProperty.name} — ${area ? area + ", " : ""}${city}, ${region}`);
     res.status(201).json(newProperty);
   } catch (error: any) {
     console.error("❌ Error creating property:", error.message);
