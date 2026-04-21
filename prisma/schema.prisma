@@ -103,6 +103,20 @@ enum VerificationStatus {
   Rejected
 }
 
+enum TransactionStatus {
+  Pending
+  Success
+  Failed
+  Refunded
+}
+
+enum TransactionType {
+  RentPayment
+  SecurityDeposit
+  ApplicationFee
+  Commission
+}
+
 // ─── USER ─────────────────────────────────────────────────
 
 model User {
@@ -137,6 +151,7 @@ model Manager {
   user              User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
   managedProperties Property[]
   verification      LandlordVerification?
+  commissions       Commission[]
 
   @@index([clerkId])
 }
@@ -155,6 +170,7 @@ model Tenant {
   applications  Application[]
   leases        Lease[]
   propertyViews PropertyView[]
+  transactions  Transaction[]
 
   @@index([clerkId])
 }
@@ -208,8 +224,8 @@ model Location {
   address     String
   city        String
   state       String                                @default("Western")
-  region      String?                                @default("Western Region")
-  area        String?                                @default("")
+  region      String?                               @default("Western Region")
+  area        String?                               @default("")
   country     String                                @default("Ghana")
   postalCode  String                                @default("")
   coordinates Unsupported("geography(Point, 4326)")
@@ -256,10 +272,11 @@ model Lease {
   tenantClerkId String
   createdAt     DateTime @default(now())
 
-  property    Property     @relation(fields: [propertyId], references: [id])
-  tenant      Tenant       @relation(fields: [tenantClerkId], references: [clerkId])
-  application Application?
-  payments    Payment[]
+  property     Property      @relation(fields: [propertyId], references: [id])
+  tenant       Tenant        @relation(fields: [tenantClerkId], references: [clerkId])
+  application  Application?
+  payments     Payment[]
+  transactions Transaction[]
 
   @@index([tenantClerkId])
   @@index([propertyId])
@@ -280,12 +297,68 @@ model Payment {
   paystackReference String?       @unique
   createdAt         DateTime      @default(now())
 
-  lease Lease @relation(fields: [leaseId], references: [id])
+  lease        Lease         @relation(fields: [leaseId], references: [id])
+  transactions Transaction[]
+  logs         PaymentLog[]
 
   @@index([leaseId])
   @@index([paymentStatus])
   @@index([dueDate])
   @@index([paystackReference])
+}
+
+// ─── TRANSACTION ──────────────────────────────────────────
+
+model Transaction {
+  id                String            @id @default(cuid())
+  paystackReference String?
+  amount            Float             @default(0)
+  currency          String            @default("GHS")
+  status            TransactionStatus @default(Pending)
+  type              TransactionType   @default(RentPayment)
+  channel           String?
+  event             String?
+  triggeredBy       String?
+  paidAt            DateTime?
+  tenantClerkId     String?
+  leaseId           Int?
+  paymentId         Int?
+  metadata          Json?
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+
+  tenant     Tenant?     @relation(fields: [tenantClerkId], references: [clerkId])
+  lease      Lease?      @relation(fields: [leaseId], references: [id])
+  payment    Payment?    @relation(fields: [paymentId], references: [id])
+  commission Commission?
+
+  @@index([paystackReference])
+  @@index([tenantClerkId])
+  @@index([leaseId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+// ─── COMMISSION ───────────────────────────────────────────
+
+model Commission {
+  id               String    @id @default(cuid())
+  transactionId    String    @unique
+  managerClerkId   String
+  grossAmount      Float
+  commissionRate   Float
+  commissionAmount Float
+  netAmount        Float
+  isPaid           Boolean   @default(false)
+  paidAt           DateTime?
+  createdAt        DateTime  @default(now())
+
+  transaction Transaction @relation(fields: [transactionId], references: [id])
+  manager     Manager     @relation(fields: [managerClerkId], references: [clerkId])
+
+  @@index([managerClerkId])
+  @@index([isPaid])
+  @@index([createdAt])
 }
 
 // ─── PROPERTY VIEW ────────────────────────────────────────
@@ -390,4 +463,24 @@ model OTP {
 
   @@index([clerkId])
   @@index([expiresAt])
+}
+
+// ─── PAYMENT LOG ──────────────────────────────────────────
+
+model PaymentLog {
+  id             String   @id @default(cuid())
+  paymentId      Int
+  action         String
+  previousStatus String?
+  newStatus      String?
+  performedBy    String
+  ipAddress      String?
+  notes          String?
+  createdAt      DateTime @default(now())
+
+  payment Payment @relation(fields: [paymentId], references: [id])
+
+  @@index([paymentId])
+  @@index([action])
+  @@index([createdAt])
 }

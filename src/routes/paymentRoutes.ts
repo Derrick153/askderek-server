@@ -1,19 +1,32 @@
-import express from "express";
+import express                from "express";
 import {
   initializePayment,
   verifyPayment,
-  paystackWebhook,
-} from "../controllers/paymentController";
+  getPaymentsByLease,
+  getTransactionsByTenant,
+  getEarningsByManager,
+  getPaymentStatus,
+} from "../controllers/paymentControllers";
+import { authMiddleware } from "../middleware/authMiddleware";
 
 const router = express.Router();
 
-// Initialize payment
-router.post("/initialize", initializePayment);
+// ── INITIALIZE PAYMENT 
+router.post("/initialize", authMiddleware(), initializePayment);
 
-// Verify payment
-router.get("/verify/:reference", verifyPayment);
+// ── VERIFY PAYMENT ────────────────────────────────────────
+router.get("/verify/:reference", authMiddleware(), verifyPayment);
 
-// Paystack webhook
-router.post("/webhook", paystackWebhook);
+// ── GET PAYMENT STATUS ────────────────────────────────────
+router.get("/status/:reference", authMiddleware(), getPaymentStatus);
+
+// ── GET PAYMENTS BY LEASE ─────────────────────────────────
+router.get("/lease/:leaseId", authMiddleware(), getPaymentsByLease);
+
+// ── GET TRANSACTIONS BY TENANT ────────────────────────────
+router.get("/transactions/:tenantClerkId", authMiddleware(), getTransactionsByTenant);
+
+// ── GET EARNINGS BY MANAGER ───────────────────────────────
+router.get("/earnings/:managerClerkId", authMiddleware(), getEarningsByManager);
 
 export default router;
