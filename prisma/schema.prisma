@@ -11,14 +11,32 @@ datasource db {
   extensions = [pg_graphql, pg_stat_statements, pgcrypto, postgis, uuid_ossp(map: "uuid-ossp", schema: "extensions")]
 }
 
-// ─── ENUMS ────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+//  ENUMS
+//
+//  Enums enforce that only valid values are stored in the database.
+//  TypeScript catches invalid values at compile time — not at runtime.
+//  This prevents bugs like storing "Pendingg" instead of "Pending".
+// ─────────────────────────────────────────────────────────────────────────────
 
+// ── Who performed an audit action ────────────────────────────────────────────
+// system = automated cron job or background task
+// admin  = Derek or authorized staff taking a manual action
+// user   = tenant or landlord doing something on their account
+enum AuditActor {
+  system
+  admin
+  user
+}
+
+// ── User roles on the platform ────────────────────────────────────────────────
 enum Role {
   TENANT
   MANAGER
   ADMIN
 }
 
+// ── Property highlights shown on listing cards ────────────────────────────────
 enum Highlight {
   HighSpeedInternetAccess
   WasherDryer
@@ -41,6 +59,7 @@ enum Highlight {
   BoreHole
 }
 
+// ── Property amenities ────────────────────────────────────────────────────────
 enum Amenity {
   WasherDryer
   AirConditioning
@@ -64,6 +83,7 @@ enum Amenity {
   SemiFinished
 }
 
+// ── Types of properties on AskDerek ──────────────────────────────────────────
 enum PropertyType {
   Rooms
   SelfContained
@@ -78,12 +98,83 @@ enum PropertyType {
   CompoundHouse
 }
 
+// ── What kind of listing this property is ────────────────────────────────────
+// FOR_RENT     = monthly or advance rent payments
+// FOR_SALE     = one-time full purchase
+// SHORT_STAY   = hourly, daily, or weekly bookings
+// LAND         = land plot for sale
+// HOSTEL       = student accommodation by semester or month
+// OFFICE       = commercial office space
+enum ListingType {
+  FOR_RENT
+  FOR_SALE
+  SHORT_STAY
+  LAND
+  HOSTEL
+  OFFICE
+}
+
+// ── Current visibility status of a property ──────────────────────────────────
+// AVAILABLE        = live and searchable by everyone
+// UNDER_OFFER      = someone is negotiating — still visible
+// SOLD             = sale completed — removed from search
+// RENTED           = tenant moved in — removed from search
+// ARCHIVED         = manager hid it — data preserved
+// PENDING_REMOVAL  = admin triggered removal — 10 min undo window
+// SUSPENDED        = temporarily blocked by admin
+// DELETED          = soft deleted — hidden from all — data preserved forever
+enum ListingStatus {
+  AVAILABLE
+  UNDER_OFFER
+  SOLD
+  RENTED
+  ARCHIVED
+  PENDING_REMOVAL
+  SUSPENDED
+  DELETED
+}
+
+// ── Why a property was soft deleted ──────────────────────────────────────────
+enum DeleteType {
+  REMOVED_BY_ADMIN    // Derek removed it from the platform
+  SUSPENDED           // Temporarily suspended pending investigation
+  SPAM                // Fake or spam listing with no real property
+  DUPLICATE           // Same property listed more than once
+  LANDLORD_REQUEST    // Landlord asked Derek to remove it
+  FRAUDULENT          // Confirmed fraudulent listing
+}
+
+// ── Payment durations available for a property ───────────────────────────────
+enum DurationType {
+  HOURLY
+  DAILY
+  WEEKLY
+  MONTHLY
+  SEMESTER
+  SIX_MONTHS
+  YEARLY
+  FULL_PAYMENT
+  INSTALLMENT
+}
+
+// ── Hostel booking closing type ───────────────────────────────────────────────
+// FIXED           = owner sets exact end date at booking
+// SCHOOL_CALENDAR = follows school announcement — updated by admin
+// OPEN_ENDED      = student pays monthly and leaves when ready
+enum ClosingType {
+  FIXED
+  SCHOOL_CALENDAR
+  OPEN_ENDED
+}
+
+// ── Tenant application status ─────────────────────────────────────────────────
 enum ApplicationStatus {
   Pending
   Denied
   Approved
 }
 
+// ── Rent payment status ───────────────────────────────────────────────────────
 enum PaymentStatus {
   Pending
   Paid
@@ -91,18 +182,21 @@ enum PaymentStatus {
   Overdue
 }
 
+// ── Property admin approval status ───────────────────────────────────────────
 enum PropertyStatus {
   Pending
   Approved
   Rejected
 }
 
+// ── Landlord Ghana Card verification status ───────────────────────────────────
 enum VerificationStatus {
   Pending
   Approved
   Rejected
 }
 
+// ── Paystack transaction status ───────────────────────────────────────────────
 enum TransactionStatus {
   Pending
   Success
@@ -110,6 +204,7 @@ enum TransactionStatus {
   Refunded
 }
 
+// ── What kind of transaction this is ─────────────────────────────────────────
 enum TransactionType {
   RentPayment
   SecurityDeposit
@@ -117,8 +212,62 @@ enum TransactionType {
   Commission
 }
 
-// ─── USER ─────────────────────────────────────────────────
+// ── Enquiry status — tracks deal pipeline ────────────────────────────────────
+enum EnquiryStatus {
+  NEW          // buyer just enquired
+  CONTACTED    // landlord replied
+  NEGOTIATING  // price discussion in progress
+  AGREED       // price agreed — waiting for payment
+  COMPLETED    // money paid — deal done
+  LOST         // buyer went elsewhere
+}
 
+// ── Booking status for short stay properties ──────────────────────────────────
+enum BookingStatus {
+  CONFIRMED    // payment received — booking active
+  CHECKED_IN   // guest has arrived at property
+  CHECKED_OUT  // stay completed successfully
+  NO_SHOW      // guest did not arrive
+  CANCELLED    // cancelled before check in
+}
+
+// ── Hostel booking status ─────────────────────────────────────────────────────
+enum HostelBookingStatus {
+  ACTIVE       // student currently staying
+  EXPIRING     // within 14 days of semester end
+  COMPLETED    // student has left
+  EXTENDED     // student extended beyond original end date
+  EXPIRED      // semester ended — no renewal received
+}
+
+// ── Notification priority levels ─────────────────────────────────────────────
+// HIGH   = property removed, lease frozen, payment failed
+// NORMAL = expiry reminders, payment due
+// LOW    = promotions, platform updates
+enum NotificationPriority {
+  HIGH
+  NORMAL
+  LOW
+}
+
+// ── Lease status ──────────────────────────────────────────────────────────────
+enum LeaseStatus {
+  ACTIVE           // all good — payments current
+  EXPIRING_SOON    // within 60 days of end date
+  EXPIRING_URGENT  // within 7 days of end date
+  EXPIRED          // end date has passed
+  RENEWED          // tenant paid for next period
+  FROZEN           // property was removed — lease preserved legally
+  TERMINATED       // ended early by either party
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  USER
+//
+//  Central user model — every person on AskDerek has one User record.
+//  Clerk handles authentication. This table stores platform-specific data.
+//  One user can be a Tenant OR a Manager — never both at the same time.
+// ─────────────────────────────────────────────────────────────────────────────
 model User {
   id              Int      @id @default(autoincrement())
   clerkId         String   @unique
@@ -128,20 +277,30 @@ model User {
   role            Role     @default(TENANT)
   isActive        Boolean  @default(true)
   isPhoneVerified Boolean  @default(false)
+
+  // isSuperAdmin is Derek only — gives full platform power
+  // Never set this to true for any other user
+  isSuperAdmin    Boolean  @default(false)
+
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
-  manager   Manager?
-  tenant    Tenant?
-  auditLogs AuditLog[]
+  manager         Manager?
+  tenant          Tenant?
+  auditLogs       AuditLog[]
 
   @@index([clerkId])
   @@index([email])
   @@index([role])
 }
 
-// ─── MANAGER ──────────────────────────────────────────────
-
+// ─────────────────────────────────────────────────────────────────────────────
+//  MANAGER (LANDLORD)
+//
+//  A Manager is a landlord who lists properties on AskDerek.
+//  They must verify their Ghana Card before listings go live.
+//  One Manager can have many properties.
+// ─────────────────────────────────────────────────────────────────────────────
 model Manager {
   id         Int     @id @default(autoincrement())
   clerkId    String  @unique
@@ -152,12 +311,18 @@ model Manager {
   managedProperties Property[]
   verification      LandlordVerification?
   commissions       Commission[]
+  enquiries         Enquiry[]
 
   @@index([clerkId])
 }
 
-// ─── TENANT ───────────────────────────────────────────────
-
+// ─────────────────────────────────────────────────────────────────────────────
+//  TENANT
+//
+//  A Tenant is someone looking for a property to rent or buy.
+//  They can save favorites, submit applications, and pay rent.
+//  One Tenant can have many active leases across multiple properties.
+// ─────────────────────────────────────────────────────────────────────────────
 model Tenant {
   id          Int     @id @default(autoincrement())
   clerkId     String  @unique
@@ -171,12 +336,24 @@ model Tenant {
   leases        Lease[]
   propertyViews PropertyView[]
   transactions  Transaction[]
+  bookings      Booking[]
+  enquiries     Enquiry[]
 
   @@index([clerkId])
 }
 
-// ─── PROPERTY ─────────────────────────────────────────────
-
+// ─────────────────────────────────────────────────────────────────────────────
+//  PROPERTY
+//
+//  The core of AskDerek. Every property listed on the platform.
+//  Properties go through an approval process before going live.
+//
+//  Soft delete system:
+//    deletedAt = null means property is active and visible
+//    deletedAt = timestamp means property was removed — data preserved
+//    This is the industry standard used by Airbnb and Stripe.
+//    We NEVER hard delete properties that have financial history.
+// ─────────────────────────────────────────────────────────────────────────────
 model Property {
   id                Int            @id @default(autoincrement())
   name              String
@@ -200,6 +377,51 @@ model Property {
   locationId        Int
   managerClerkId    String
 
+  // ── Listing type and status (Phase 3.5) ──────────────────────────────────
+  listingType       ListingType    @default(FOR_RENT)
+  listingStatus     ListingStatus  @default(AVAILABLE)
+
+  // ── For sale properties ───────────────────────────────────────────────────
+  askingPrice       Float?         // full sale price — used for FOR_SALE and LAND
+  isNegotiable      Boolean        @default(false)
+  soldAt            DateTime?      // when the sale was completed
+  soldPrice         Float?         // final agreed sale price
+  soldToClerkId     String?        // who bought it
+
+  // ── Soft delete system ────────────────────────────────────────────────────
+  // deletedAt = null means ACTIVE. deletedAt = timestamp means REMOVED.
+  // One source of truth — never use a boolean isDeleted alongside this.
+  deletedAt         DateTime?
+  deletedBy         String?        // adminClerkId who removed it
+  deleteReason      String?        // required reason — min 10 chars
+  deleteType        DeleteType?    // why it was removed
+
+  // ── Pending removal — 10 minute undo window ───────────────────────────────
+  // When admin clicks Remove From Platform, property enters this state first.
+  // A cron job checks removalExecuteAt and completes the soft delete.
+  // Admin can undo within the window by cancelling pending removal.
+  pendingRemovalAt  DateTime?
+  pendingRemovalBy  String?        // adminClerkId who triggered removal
+  removalExecuteAt  DateTime?      // pendingRemovalAt + 10 minutes
+
+  // ── Archive ───────────────────────────────────────────────────────────────
+  // Manager archives to hide from search without deleting.
+  // All data preserved. Can be unarchived anytime.
+  isArchived        Boolean        @default(false)
+  archivedAt        DateTime?
+  archivedBy        String?
+
+  // ── Restore tracking ──────────────────────────────────────────────────────
+  restoredAt        DateTime?
+  restoredBy        String?
+  restoreCode       String?        @unique // unique recovery key for paper trail
+
+  // ── System flags ─────────────────────────────────────────────────────────
+  // These flags give Derek instant dashboard visibility when action is needed.
+  // Set automatically by the system — not manually.
+  hasActiveDispute        Boolean  @default(false)
+  requiresAdminAttention  Boolean  @default(false)
+
   location     Location       @relation(fields: [locationId], references: [id])
   manager      Manager        @relation(fields: [managerClerkId], references: [clerkId])
   leases       Lease[]
@@ -208,6 +430,9 @@ model Property {
   tenants      Tenant[]       @relation("TenantProperties")
   views        PropertyView[]
   reports      Report[]
+  bookings     Booking[]
+  enquiries    Enquiry[]
+  structures   PaymentStructure[]
 
   @@index([managerClerkId])
   @@index([locationId])
@@ -215,10 +440,41 @@ model Property {
   @@index([pricePerMonth])
   @@index([status])
   @@index([postedDate])
+  @@index([listingType])
+  @@index([listingStatus])
+  @@index([deletedAt])
 }
 
-// ─── LOCATION ─────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+//  PAYMENT STRUCTURE
+//
+//  Defines what payment durations are available for a property.
+//  A house might offer monthly and yearly options.
+//  A short stay might offer daily and weekly.
+//  A hostel might offer monthly and semester.
+//  Each row is one available duration at one price.
+// ─────────────────────────────────────────────────────────────────────────────
+model PaymentStructure {
+  id           Int          @id @default(autoincrement())
+  propertyId   Int
+  durationType DurationType
+  price        Float        // price for this duration in GHS
+  isActive     Boolean      @default(true)
+  createdAt    DateTime     @default(now())
 
+  property Property @relation(fields: [propertyId], references: [id])
+
+  @@index([propertyId])
+  @@index([durationType])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  LOCATION
+//
+//  Geographic data for every property.
+//  Uses PostGIS for precise coordinate storage and distance queries.
+//  This powers the "properties near me" and map features.
+// ─────────────────────────────────────────────────────────────────────────────
 model Location {
   id          Int                                   @id @default(autoincrement())
   address     String
@@ -236,8 +492,13 @@ model Location {
   @@index([area])
 }
 
-// ─── APPLICATION ──────────────────────────────────────────
-
+// ─────────────────────────────────────────────────────────────────────────────
+//  APPLICATION
+//
+//  A tenant submits an application to rent a property.
+//  The manager reviews it and approves or denies.
+//  On approval a Lease is automatically created.
+// ─────────────────────────────────────────────────────────────────────────────
 model Application {
   id              Int               @id @default(autoincrement())
   applicationDate DateTime          @default(now())
@@ -260,17 +521,34 @@ model Application {
   @@index([applicationDate])
 }
 
-// ─── LEASE ────────────────────────────────────────────────
-
+// ─────────────────────────────────────────────────────────────────────────────
+//  LEASE
+//
+//  The legal agreement between tenant and landlord.
+//  Created automatically when an application is approved.
+//
+//  Freeze system:
+//    When a property is soft deleted and has an active lease,
+//    the lease is FROZEN — not deleted. This preserves the legal
+//    record and the tenant's rights. Derek must handle manually.
+// ─────────────────────────────────────────────────────────────────────────────
 model Lease {
-  id            Int      @id @default(autoincrement())
+  id            Int         @id @default(autoincrement())
   startDate     DateTime
   endDate       DateTime
   rent          Float
-  deposit       Float    @default(0)
+  deposit       Float       @default(0)
   propertyId    Int
   tenantClerkId String
-  createdAt     DateTime @default(now())
+  status        LeaseStatus @default(ACTIVE)
+  createdAt     DateTime    @default(now())
+
+  // ── Freeze state ──────────────────────────────────────────────────────────
+  // A frozen lease means the property was removed but the lease existed.
+  // Money was paid. Legal rights exist. Derek handles this manually.
+  isFrozen      Boolean     @default(false)
+  frozenAt      DateTime?
+  freezeReason  String?     // e.g. "PROPERTY_REMOVED"
 
   property     Property      @relation(fields: [propertyId], references: [id])
   tenant       Tenant        @relation(fields: [tenantClerkId], references: [clerkId])
@@ -282,10 +560,21 @@ model Lease {
   @@index([propertyId])
   @@index([startDate])
   @@index([endDate])
+  @@index([status])
 }
 
-// ─── PAYMENT ──────────────────────────────────────────────
-
+// ─────────────────────────────────────────────────────────────────────────────
+//  PAYMENT
+//
+//  A single rent payment record — one per month per lease.
+//  When a tenant pays 2 years advance, 24 Payment records are created
+//  all marked as Paid. This keeps tracking accurate.
+//
+//  Immutable lock:
+//    Once isLocked = true, no code should ever update or delete this record.
+//    Not even Derek. Locked payments are permanent financial evidence.
+//    This is how banks and Stripe handle payment records.
+// ─────────────────────────────────────────────────────────────────────────────
 model Payment {
   id                Int           @id @default(autoincrement())
   amountDue         Float
@@ -297,6 +586,13 @@ model Payment {
   paystackReference String?       @unique
   createdAt         DateTime      @default(now())
 
+  // ── Immutable lock ────────────────────────────────────────────────────────
+  // Set to true immediately after payment is confirmed successful.
+  // Once locked this record cannot be modified or deleted by anyone.
+  // This protects the financial integrity of the platform.
+  isLocked          Boolean       @default(false)
+  lockedAt          DateTime?
+
   lease        Lease         @relation(fields: [leaseId], references: [id])
   transactions Transaction[]
   logs         PaymentLog[]
@@ -305,10 +601,16 @@ model Payment {
   @@index([paymentStatus])
   @@index([dueDate])
   @@index([paystackReference])
+  @@index([isLocked])
 }
 
-// ─── TRANSACTION ──────────────────────────────────────────
-
+// ─────────────────────────────────────────────────────────────────────────────
+//  TRANSACTION
+//
+//  Records every Paystack transaction attempt — successful or not.
+//  Different from Payment — a Payment can have multiple Transactions
+//  if the tenant attempted to pay and failed before succeeding.
+// ─────────────────────────────────────────────────────────────────────────────
 model Transaction {
   id                String            @id @default(cuid())
   paystackReference String?
@@ -339,16 +641,21 @@ model Transaction {
   @@index([createdAt])
 }
 
-// ─── COMMISSION ───────────────────────────────────────────
-
+// ─────────────────────────────────────────────────────────────────────────────
+//  COMMISSION
+//
+//  Derek's 5% revenue record for every successful payment.
+//  Every GHS AskDerek earns is recorded here permanently.
+//  This is the platform's financial ledger.
+// ─────────────────────────────────────────────────────────────────────────────
 model Commission {
   id               String    @id @default(cuid())
   transactionId    String    @unique
   managerClerkId   String
-  grossAmount      Float
-  commissionRate   Float
-  commissionAmount Float
-  netAmount        Float
+  grossAmount      Float     // what tenant paid
+  commissionRate   Float     // always 0.05 — 5%
+  commissionAmount Float     // Derek's share
+  netAmount        Float     // landlord's share — 95%
   isPaid           Boolean   @default(false)
   paidAt           DateTime?
   createdAt        DateTime  @default(now())
@@ -361,8 +668,180 @@ model Commission {
   @@index([createdAt])
 }
 
-// ─── PROPERTY VIEW ────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+//  BOOKING
+//
+//  Short stay bookings — hourly, daily, or weekly property rentals.
+//  Different from a Lease which is long term.
+//  A Booking has a check-in and check-out time.
+// ─────────────────────────────────────────────────────────────────────────────
+model Booking {
+  id              Int           @id @default(autoincrement())
+  propertyId      Int
+  guestClerkId    String
+  checkIn         DateTime
+  checkOut        DateTime
+  totalAmount     Float
+  durationType    DurationType  // HOURLY · DAILY · WEEKLY · MONTHLY
+  status          BookingStatus @default(CONFIRMED)
+  reference       String        @unique
+  paystackRef     String?
+  createdAt       DateTime      @default(now())
 
+  property Property @relation(fields: [propertyId], references: [id])
+  guest    Tenant   @relation(fields: [guestClerkId], references: [clerkId])
+
+  @@index([propertyId])
+  @@index([guestClerkId])
+  @@index([checkIn])
+  @@index([checkOut])
+  @@index([status])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  SEMESTER PLAN
+//
+//  Hostel bookings paid per semester.
+//  A student books for First Semester or Second Semester.
+//  Closing date can be fixed, follow school calendar, or open ended.
+// ─────────────────────────────────────────────────────────────────────────────
+model SemesterPlan {
+  id              Int                 @id @default(autoincrement())
+  propertyId      Int
+  studentClerkId  String
+  semesterName    String              // e.g. "Second Semester 2026"
+  checkIn         DateTime
+  closingType     ClosingType
+  fixedEndDate    DateTime?           // used when closingType = FIXED
+  schoolId        Int?                // used when closingType = SCHOOL_CALENDAR
+  actualEndDate   DateTime?           // set when student checks out
+  roomNumber      String?
+  amountPaid      Float
+  reference       String              @unique
+  status          HostelBookingStatus @default(ACTIVE)
+  createdAt       DateTime            @default(now())
+
+  school School? @relation(fields: [schoolId], references: [id])
+
+  @@index([studentClerkId])
+  @@index([propertyId])
+  @@index([status])
+  @@index([schoolId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  SCHOOL
+//
+//  Schools linked to hostel bookings.
+//  Admin updates semester end dates when schools announce them.
+//  All students linked to that school get notified automatically.
+// ─────────────────────────────────────────────────────────────────────────────
+model School {
+  id           Int              @id @default(autoincrement())
+  name         String           // e.g. "UMAT Tarkwa"
+  location     String           // e.g. "Tarkwa"
+  createdAt    DateTime         @default(now())
+
+  semesters    SchoolSemester[]
+  bookings     SemesterPlan[]
+
+  @@index([name])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  SCHOOL SEMESTER
+//
+//  Tracks semester dates for each school.
+//  isConfirmed = false until admin updates after school announces.
+//  Once confirmed all linked students are notified automatically.
+// ─────────────────────────────────────────────────────────────────────────────
+model SchoolSemester {
+  id             Int       @id @default(autoincrement())
+  schoolId       Int
+  semesterName   String    // e.g. "Second Semester 2026"
+  startDate      DateTime
+  endDate        DateTime? // null until school announces
+  isConfirmed    Boolean   @default(false)
+  confirmedAt    DateTime? // when admin updated it
+  createdAt      DateTime  @default(now())
+
+  school School @relation(fields: [schoolId], references: [id])
+
+  @@index([schoolId])
+  @@index([semesterName])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  ENQUIRY
+//
+//  Records buyer interest in a for-sale or for-rent property.
+//  All contact goes through AskDerek — no direct phone numbers shared.
+//  Tracks the full deal pipeline from first interest to completion.
+//  Commission is calculated and recorded when deal completes.
+// ─────────────────────────────────────────────────────────────────────────────
+model Enquiry {
+  id              Int           @id @default(autoincrement())
+  propertyId      Int
+  enquirerClerkId String
+  managerClerkId  String
+  enquiryType     String        // MESSAGE · CALL_REQUEST · VIEWING
+  status          EnquiryStatus @default(NEW)
+  offeredPrice    Float?        // what buyer offered
+  agreedPrice     Float?        // final agreed price
+  commissionDue   Float?        // 5% of agreed price
+  notes           String?
+  completedAt     DateTime?
+  createdAt       DateTime      @default(now())
+
+  property Property @relation(fields: [propertyId], references: [id])
+  manager  Manager  @relation(fields: [managerClerkId], references: [clerkId])
+  enquirer Tenant   @relation(fields: [enquirerClerkId], references: [clerkId])
+  messages Message[]
+
+  @@index([propertyId])
+  @@index([enquirerClerkId])
+  @@index([managerClerkId])
+  @@index([status])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  MESSAGE
+//
+//  Protected messaging between buyers and landlords.
+//  All messages go through AskDerek — Derek can see everything.
+//  Phone numbers and emails are automatically filtered out.
+//  Redaction system allows masking sensitive content without deleting.
+// ─────────────────────────────────────────────────────────────────────────────
+model Message {
+  id          Int      @id @default(autoincrement())
+  enquiryId   Int
+  senderClerkId String
+  content     String
+  createdAt   DateTime @default(now())
+
+  // ── Redaction system ──────────────────────────────────────────────────────
+  // Never delete messages — redact them instead.
+  // The record stays but content is masked from users.
+  // Derek can always see what was originally said.
+  isRedacted  Boolean  @default(false)
+  redactedAt  DateTime?
+  redactedBy  String?  // adminClerkId who redacted it
+  redactReason String?
+
+  enquiry Enquiry @relation(fields: [enquiryId], references: [id])
+
+  @@index([enquiryId])
+  @@index([senderClerkId])
+  @@index([createdAt])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  PROPERTY VIEW
+//
+//  Tracks which tenants viewed which properties.
+//  Used for analytics — which properties get the most views.
+//  Helps landlords understand listing performance.
+// ─────────────────────────────────────────────────────────────────────────────
 model PropertyView {
   id            String   @id @default(cuid())
   tenantClerkId String
@@ -378,8 +857,13 @@ model PropertyView {
   @@map("property_views")
 }
 
-// ─── LANDLORD VERIFICATION ────────────────────────────────
-
+// ─────────────────────────────────────────────────────────────────────────────
+//  LANDLORD VERIFICATION
+//
+//  Ghana Card verification for landlords.
+//  Both front and back photo required.
+//  Admin reviews and approves or rejects with reason.
+// ─────────────────────────────────────────────────────────────────────────────
 model LandlordVerification {
   id                Int                @id @default(autoincrement())
   managerClerkId    String             @unique
@@ -398,8 +882,13 @@ model LandlordVerification {
   @@index([managerClerkId])
 }
 
-// ─── BLACKLIST ────────────────────────────────────────────
-
+// ─────────────────────────────────────────────────────────────────────────────
+//  BLACKLIST
+//
+//  Banned users cannot register on AskDerek again.
+//  Matched against phone number, email, or Ghana Card ID.
+//  Used for scammers, fraudulent landlords, and bad tenants.
+// ─────────────────────────────────────────────────────────────────────────────
 model Blacklist {
   id          Int      @id @default(autoincrement())
   phoneNumber String?
@@ -414,8 +903,13 @@ model Blacklist {
   @@index([ghanaCardId])
 }
 
-// ─── REPORT ───────────────────────────────────────────────
-
+// ─────────────────────────────────────────────────────────────────────────────
+//  REPORT
+//
+//  Users can report suspicious or fraudulent listings.
+//  Admin reviews and resolves reports.
+//  Unresolved reports flag a property for admin attention.
+// ─────────────────────────────────────────────────────────────────────────────
 model Report {
   id          Int       @id @default(autoincrement())
   propertyId  Int
@@ -434,25 +928,54 @@ model Report {
   @@index([createdAt])
 }
 
-// ─── AUDIT LOG ────────────────────────────────────────────
-
+// ─────────────────────────────────────────────────────────────────────────────
+//  AUDIT LOG
+//
+//  The court-level evidence system for AskDerek.
+//  Every important platform action is recorded here permanently.
+//  This table is NEVER cleared and NEVER modified after writing.
+//
+//  Three types of actors using the AuditActor enum:
+//    system = automated cron jobs and background tasks
+//    admin  = Derek or authorized staff manual actions
+//    user   = tenant or landlord platform actions
+//
+//  adminId is optional — system events have no human admin.
+//  This prevents foreign key errors when cron jobs fire at midnight.
+// ─────────────────────────────────────────────────────────────────────────────
 model AuditLog {
-  id        Int      @id @default(autoincrement())
-  adminId   Int
-  action    String
-  target    String
-  details   String?
-  createdAt DateTime @default(now())
+  id          Int        @id @default(autoincrement())
 
-  admin User @relation(fields: [adminId], references: [id])
+  // Who performed this action — enforced by enum, not free text
+  performedBy AuditActor @default(system)
+
+  // Only set for admin actions — null for system and user events
+  adminId     Int?
+  admin       User?      @relation(fields: [adminId], references: [id])
+
+  action      String     // e.g. "PAYMENT_SUCCESS" "PROPERTY_SOFT_DELETED"
+  target      String     // what was affected e.g. "Payment #47" "Property #12"
+  details     String?    // any extra context
+
+  // Notification priority for this event
+  priority    NotificationPriority @default(NORMAL)
+
+  createdAt   DateTime   @default(now())
 
   @@index([adminId])
   @@index([createdAt])
   @@index([action])
+  @@index([performedBy])
+  @@index([priority])
 }
 
-// ─── OTP ──────────────────────────────────────────────────
-
+// ─────────────────────────────────────────────────────────────────────────────
+//  OTP
+//
+//  One-time passwords for phone verification.
+//  Sent via Arkesel SMS. Expires after 10 minutes.
+//  Required before a tenant can apply or a manager can list.
+// ─────────────────────────────────────────────────────────────────────────────
 model OTP {
   id        String   @id @default(cuid())
   clerkId   String
@@ -465,16 +988,28 @@ model OTP {
   @@index([expiresAt])
 }
 
-// ─── PAYMENT LOG ──────────────────────────────────────────
-
+// ─────────────────────────────────────────────────────────────────────────────
+//  PAYMENT LOG
+//
+//  Detailed history of every stage a payment went through.
+//  Different from AuditLog — PaymentLog is payment-specific.
+//  One Payment can have many PaymentLog entries.
+//
+//  Example for a single payment:
+//    PAYMENT_INITIALIZED — system — 09:45:01
+//    PAYMENT_PENDING     — system — 09:45:03
+//    PAYMENT_SUCCESS     — system — 09:45:47
+//
+//  This is the evidence trail for every GHS that passes through AskDerek.
+// ─────────────────────────────────────────────────────────────────────────────
 model PaymentLog {
   id             String   @id @default(cuid())
   paymentId      Int
   action         String
-  previousStatus String?
-  newStatus      String?
-  performedBy    String
-  ipAddress      String?
+  previousStatus String?  // what status was before this action
+  newStatus      String?  // what status changed to
+  performedBy    String   // system · admin · user
+  ipAddress      String?  // helps identify fraud patterns
   notes          String?
   createdAt      DateTime @default(now())
 
