@@ -40,7 +40,8 @@
     "qrcode": "^1.5.4",
     "resend": "^6.9.4",
     "svix": "^1.84.1",
-    "uuid": "^11.0.5"
+    "uuid": "^11.0.5",
+    "zod": "^4.3.6"
   },
   "devDependencies": {
     "@types/bcrypt": "^6.0.0",
