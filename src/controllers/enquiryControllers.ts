@@ -25,8 +25,10 @@ import { EnquiryStatus }              from "@prisma/client";
 // ─────────────────────────────────────────────────────────────────────────────
 
 // ── RESPONSE TYPES ────────────────────────────────────────────────────────────
+// T defaults to unknown — allows controllers to return real data objects
+// without TypeScript complaining about type mismatch with undefined.
 
-interface ApiSuccess<T = undefined> {
+interface ApiSuccess<T = unknown> {
   success: true;
   message: string;
   data?:   T;
@@ -38,22 +40,21 @@ interface ApiError {
   errors?: { field: string; message: string }[];
 }
 
-type ApiResponse<T = undefined> = ApiSuccess<T> | ApiError;
+type ApiResponse<T = unknown> = ApiSuccess<T> | ApiError;
 
 // ── VALIDATION SCHEMAS ────────────────────────────────────────────────────────
+// Zod v4 removed required_error and invalid_type_error from all types.
+// Use error: string for custom type error messages.
+// Remove required_error from z.enum() — not supported in v4.
 
 const createEnquirySchema = z.object({
-  propertyId:  z.number({
-    required_error:     "propertyId is required",
-    invalid_type_error: "propertyId must be a number",
-  }).int().positive("propertyId must be a positive integer"),
-  message: z.string({
-    required_error: "message is required",
-  }).min(10, "Message must be at least 10 characters")
-    .max(1000, "Message cannot exceed 1000 characters"),
-  enquiryType: z.enum(["MESSAGE", "CALL_REQUEST", "VIEWING"], {
-    required_error: "enquiryType is required",
-  }),
+  propertyId:   z.number({ error: "propertyId must be a number" })
+                 .int()
+                 .positive("propertyId must be a positive integer"),
+  message:      z.string()
+                 .min(10, "Message must be at least 10 characters")
+                 .max(1000, "Message cannot exceed 1000 characters"),
+  enquiryType:  z.enum(["MESSAGE", "CALL_REQUEST", "VIEWING"]),
   offeredPrice: z.number().positive().optional(),
 });
 
@@ -63,22 +64,20 @@ const updateStatusSchema = z.object({
     "NEGOTIATING",
     "AGREED",
     "LOST",
-  ], { required_error: "status is required" }),
+  ]),
 });
 
+
 const recordDealSchema = z.object({
-  agreedPrice: z.number({
-    required_error:     "agreedPrice is required",
-    invalid_type_error: "agreedPrice must be a number",
-  }).positive("agreedPrice must be greater than zero"),
-  notes: z.string().max(500).optional(),
+  agreedPrice: z.number({ error: "agreedPrice must be a number" })
+                .positive("agreedPrice must be greater than zero"),
+  notes:       z.string().max(500).optional(),
 });
 
 const respondSchema = z.object({
-  response: z.string({
-    required_error: "response is required",
-  }).min(1, "Response cannot be empty")
-    .max(1000, "Response cannot exceed 1000 characters"),
+  response: z.string()
+             .min(1, "Response cannot be empty")
+             .max(1000, "Response cannot exceed 1000 characters"),
 });
 
 // ── SHARED HELPERS ────────────────────────────────────────────────────────────

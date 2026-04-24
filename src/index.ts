@@ -1,23 +1,30 @@
-import express from "express";
-import dotenv from "dotenv";
-import cors from "cors";
-import helmet from "helmet";
-import morgan from "morgan";
-import rateLimit from "express-rate-limit";
+import express, {
+  Request,
+  Response,
+  NextFunction,
+}                           from "express";
+import dotenv               from "dotenv";
+import cors                 from "cors";
+import helmet               from "helmet";
+import morgan               from "morgan";
+import rateLimit            from "express-rate-limit";
+import { clerkMiddleware }  from "@clerk/express";
 
 // ── ROUTES ────────────────────────────────────────────────
-import propertyRoutes       from "./routes/propertyRoutes";
-import tenantRoutes         from "./routes/tenantRoutes";
-import managerRoutes        from "./routes/managerRoutes";
-import applicationRoutes    from "./routes/applicationRoutes";
-import leaseRoutes          from "./routes/leaseRoutes";
-import webhookRoutes        from "./routes/webhookRoutes";
-import paymentRoutes        from "./routes/paymentRoutes";
-import adminRoutes          from "./routes/adminRoutes";
-import adminPaymentRoutes   from "./routes/adminPaymentRoutes";
-import authRoutes           from "./routes/authRoutes";
-import otpRoutes            from "./routes/otpRoutes";
-import locationRoutes       from "./routes/locationRoutes";
+import propertyRoutes     from "./routes/propertyRoutes";
+import tenantRoutes       from "./routes/tenantRoutes";
+import managerRoutes      from "./routes/managerRoutes";
+import applicationRoutes  from "./routes/applicationRoutes";
+import leaseRoutes        from "./routes/leaseRoutes";
+import webhookRoutes      from "./routes/webhookRoutes";
+import paymentRoutes      from "./routes/paymentRoutes";
+import adminRoutes        from "./routes/adminRoutes";
+import adminPaymentRoutes from "./routes/adminPaymentRoutes";
+import authRoutes         from "./routes/authRoutes";
+import otpRoutes          from "./routes/otpRoutes";
+import locationRoutes     from "./routes/locationRoutes";
+import saleRoutes         from "./routes/saleRoutes";
+import enquiryRoutes      from "./routes/enquiryRoutes";
 
 // ── JOBS ──────────────────────────────────────────────────
 import { startOverduePaymentJob } from "./jobs/overduePaymentJob";
@@ -51,11 +58,11 @@ const corsOptions: cors.CorsOptions = {
   allowedHeaders: ["Content-Type", "Authorization"],
 };
 
-// ── RATE LIMITING ─────────────────────────────────────────
+// ── RATE LIMITERS ─────────────────────────────────────────
 const generalLimiter = rateLimit({
   windowMs:        15 * 60 * 1000,
   max:             100,
-  message:         { error: "Too many requests. Please try again later." },
+  message:         { success: false, message: "Too many requests. Please try again later." },
   standardHeaders: true,
   legacyHeaders:   false,
 });
@@ -63,7 +70,7 @@ const generalLimiter = rateLimit({
 const authLimiter = rateLimit({
   windowMs:        15 * 60 * 1000,
   max:             10,
-  message:         { error: "Too many auth attempts. Please try again later." },
+  message:         { success: false, message: "Too many auth attempts. Please try again later." },
   standardHeaders: true,
   legacyHeaders:   false,
 });
@@ -71,7 +78,7 @@ const authLimiter = rateLimit({
 const otpLimiter = rateLimit({
   windowMs:        60 * 1000,
   max:             3,
-  message:         { error: "Too many OTP requests. Please wait 1 minute." },
+  message:         { success: false, message: "Too many OTP requests. Please wait 1 minute." },
   standardHeaders: true,
   legacyHeaders:   false,
 });
@@ -79,12 +86,14 @@ const otpLimiter = rateLimit({
 const paymentLimiter = rateLimit({
   windowMs:        15 * 60 * 1000,
   max:             30,
-  message:         { error: "Too many payment requests. Please try again later." },
+  message:         { success: false, message: "Too many payment requests. Please try again later." },
   standardHeaders: true,
   legacyHeaders:   false,
 });
 
-// ── WEBHOOK ROUTES — must be before express.json() ────────
+// ── WEBHOOK ROUTES ────────────────────────────────────────
+// Must be registered BEFORE express.json() so rawBody is preserved
+// for Paystack HMAC-SHA512 signature verification.
 app.use("/api/webhooks", webhookRoutes);
 
 // ── CORE MIDDLEWARE ───────────────────────────────────────
@@ -94,6 +103,12 @@ app.use(helmet());
 app.use(helmet.crossOriginResourcePolicy({ policy: "cross-origin" }));
 app.use(cors(corsOptions));
 app.use(morgan(NODE_ENV === "production" ? "combined" : "dev"));
+
+// ── CLERK MIDDLEWARE ──────────────────────────────────────
+// Must be registered BEFORE any route that uses requireAuth().
+// This attaches req.auth to every request so controllers
+// can safely call req.auth?.userId to get the verified identity.
+app.use(clerkMiddleware());
 
 // ── RATE LIMITING ─────────────────────────────────────────
 app.use("/api",          generalLimiter);
@@ -113,9 +128,11 @@ app.use("/api/leases",         leaseRoutes);
 app.use("/api/payments",       paymentRoutes);
 app.use("/api/admin",          adminRoutes);
 app.use("/api/admin/payments", adminPaymentRoutes);
+app.use("/api/sale",           saleRoutes);
+app.use("/api/enquiries",      enquiryRoutes);
 
 // ── HEALTH CHECK ──────────────────────────────────────────
-app.get("/health", (_req, res) => {
+app.get("/health", (_req: Request, res: Response) => {
   res.json({
     status:      "ok",
     app:         "AskDerek API",
@@ -125,21 +142,25 @@ app.get("/health", (_req, res) => {
 });
 
 // ── 404 HANDLER ───────────────────────────────────────────
-app.use((_req, res) => {
-  res.status(404).json({ error: "Route not found" });
+app.use((_req: Request, res: Response) => {
+  res.status(404).json({ success: false, message: "Route not found" });
 });
 
 // ── GLOBAL ERROR HANDLER ──────────────────────────────────
+// err typed as Error instead of any — strict TypeScript compliant
 app.use((
-  err:   any,
-  _req:  express.Request,
-  res:   express.Response,
-  _next: express.NextFunction
+  err:   Error & { status?: number },
+  _req:  Request,
+  res:   Response,
+  _next: NextFunction
 ) => {
-  console.error("❌ Unhandled error:", err);
+  console.error("❌ Unhandled error:", {
+    message: err.message,
+    stack:   NODE_ENV === "development" ? err.stack : undefined,
+  });
   res.status(err.status || 500).json({
-    error: err.message || "Internal server error",
-    ...(NODE_ENV === "development" && { stack: err.stack }),
+    success: false,
+    message: NODE_ENV === "development" ? err.message : "Internal server error",
   });
 });
 
@@ -155,9 +176,10 @@ const server = app.listen(PORT, () => {
   console.log(`🔐 Auth:      http://localhost:${PORT}/api/auth`);
   console.log(`📱 OTP:       http://localhost:${PORT}/api/otp`);
   console.log(`📍 Locations: http://localhost:${PORT}/api/locations`);
+  console.log(`🏠 Sale:      http://localhost:${PORT}/api/sale`);
+  console.log(`💬 Enquiries: http://localhost:${PORT}/api/enquiries`);
   console.log(`🌍 ENV:       ${NODE_ENV}\n`);
 
-  // ── START CRON JOBS ──────────────────────────────────
   startOverduePaymentJob();
   startPaymentExpiryJob();
   startReminderJob();
@@ -165,7 +187,7 @@ const server = app.listen(PORT, () => {
 });
 
 // ── GRACEFUL SHUTDOWN ─────────────────────────────────────
-const shutdown = (signal: string) => {
+const shutdown = (signal: string): void => {
   console.log(`\n⚠️  ${signal} received — shutting down gracefully...`);
   server.close(() => {
     console.log("✅ Server closed. Goodbye.");

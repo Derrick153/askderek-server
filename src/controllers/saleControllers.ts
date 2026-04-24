@@ -21,8 +21,10 @@ import crypto                                        from "crypto";
 // ─────────────────────────────────────────────────────────────────────────────
 
 // ── RESPONSE TYPES ────────────────────────────────────────────────────────────
+// T defaults to unknown instead of undefined.
+// This allows controllers to pass real data objects without TypeScript errors.
 
-interface ApiSuccess<T = undefined> {
+interface ApiSuccess<T = unknown> {
   success: true;
   message: string;
   data?:   T;
@@ -34,35 +36,33 @@ interface ApiError {
   errors?: { field: string; message: string }[];
 }
 
-type ApiResponse<T = undefined> = ApiSuccess<T> | ApiError;
+type ApiResponse<T = unknown> = ApiSuccess<T> | ApiError;
 
 // ── VALIDATION SCHEMAS ────────────────────────────────────────────────────────
+// Zod v4 removed required_error and invalid_type_error.
+// Use error: string for a single custom message on type failures.
+// Chained methods like .positive() and .min() handle value validation.
 
 const listForSaleSchema = z.object({
-  askingPrice: z.number({
-    required_error:     "askingPrice is required",
-    invalid_type_error: "askingPrice must be a number",
-  }).positive("askingPrice must be greater than zero"),
+  askingPrice:  z.number({ error: "askingPrice must be a number" })
+                 .positive("askingPrice must be greater than zero"),
   isNegotiable: z.boolean().optional().default(false),
 });
 
 const markAsSoldSchema = z.object({
-  soldPrice: z.number({
-    required_error:     "soldPrice is required",
-    invalid_type_error: "soldPrice must be a number",
-  }).positive("soldPrice must be greater than zero"),
+  soldPrice:     z.number({ error: "soldPrice must be a number" })
+                  .positive("soldPrice must be greater than zero"),
   soldToClerkId: z.string().optional(),
 });
 
 const adminSchema = z.object({
-  adminDbId: z.number({
-    required_error:     "adminDbId is required",
-    invalid_type_error: "adminDbId must be a number",
-  }).int().positive(),
+  adminDbId: z.number({ error: "adminDbId must be a number" })
+              .int()
+              .positive("adminDbId must be a positive integer"),
 });
 
 const pendingRemovalSchema = adminSchema.extend({
-  reason: z.string().min(10, "Reason must be at least 10 characters"),
+  reason:     z.string().min(10, "Reason must be at least 10 characters"),
   deleteType: z.enum([
     "REMOVED_BY_ADMIN",
     "SUSPENDED",
@@ -70,7 +70,7 @@ const pendingRemovalSchema = adminSchema.extend({
     "DUPLICATE",
     "LANDLORD_REQUEST",
     "FRAUDULENT",
-  ], { required_error: "deleteType is required" }),
+  ]),
 });
 
 // ── SAFE ENUM MAP ─────────────────────────────────────────────────────────────
