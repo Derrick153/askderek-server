@@ -11,6 +11,7 @@ import rateLimit            from "express-rate-limit";
 import { clerkMiddleware }  from "@clerk/express";
 
 // ── ROUTES ────────────────────────────────────────────────
+// Phase 1 and 2 routes — foundation and verification
 import propertyRoutes     from "./routes/propertyRoutes";
 import tenantRoutes       from "./routes/tenantRoutes";
 import managerRoutes      from "./routes/managerRoutes";
@@ -23,8 +24,12 @@ import adminPaymentRoutes from "./routes/adminPaymentRoutes";
 import authRoutes         from "./routes/authRoutes";
 import otpRoutes          from "./routes/otpRoutes";
 import locationRoutes     from "./routes/locationRoutes";
+// Phase 3.5 routes — property types and payment structures
 import saleRoutes         from "./routes/saleRoutes";
 import enquiryRoutes      from "./routes/enquiryRoutes";
+import messageRoutes      from "./routes/messageRoutes";
+import bookingRoutes      from "./routes/bookingRoutes";
+import hostelRoutes       from "./routes/hostelRoutes";
 
 // ── JOBS ──────────────────────────────────────────────────
 import { startOverduePaymentJob } from "./jobs/overduePaymentJob";
@@ -39,6 +44,8 @@ const PORT     = process.env.PORT     || 5000;
 const NODE_ENV = process.env.NODE_ENV || "development";
 
 // ── CORS ──────────────────────────────────────────────────
+// In development with no ALLOWED_ORIGINS set all origins are allowed.
+// In production only origins listed in ALLOWED_ORIGINS env var pass.
 const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || "")
   .split(",")
   .map((o) => o.trim())
@@ -59,6 +66,8 @@ const corsOptions: cors.CorsOptions = {
 };
 
 // ── RATE LIMITERS ─────────────────────────────────────────
+// Global limiter applied to all /api routes.
+// Specific routes get additional targeted limiters in their route files.
 const generalLimiter = rateLimit({
   windowMs:        15 * 60 * 1000,
   max:             100,
@@ -67,6 +76,7 @@ const generalLimiter = rateLimit({
   legacyHeaders:   false,
 });
 
+// Auth routes limited more strictly — prevents brute force attacks
 const authLimiter = rateLimit({
   windowMs:        15 * 60 * 1000,
   max:             10,
@@ -75,6 +85,8 @@ const authLimiter = rateLimit({
   legacyHeaders:   false,
 });
 
+// OTP routes — very strict — max 3 per minute
+// Prevents OTP farming and phone number enumeration
 const otpLimiter = rateLimit({
   windowMs:        60 * 1000,
   max:             3,
@@ -83,6 +95,7 @@ const otpLimiter = rateLimit({
   legacyHeaders:   false,
 });
 
+// Payment routes limited separately — prevents payment spam
 const paymentLimiter = rateLimit({
   windowMs:        15 * 60 * 1000,
   max:             30,
@@ -92,8 +105,10 @@ const paymentLimiter = rateLimit({
 });
 
 // ── WEBHOOK ROUTES ────────────────────────────────────────
-// Must be registered BEFORE express.json() so rawBody is preserved
-// for Paystack HMAC-SHA512 signature verification.
+// Registered BEFORE express.json() — critical for Paystack webhooks.
+// Paystack signature verification requires the raw request body bytes.
+// If express.json() runs first it parses the body and the raw bytes are lost.
+// HMAC-SHA512 verification will fail and all webhooks will be rejected.
 app.use("/api/webhooks", webhookRoutes);
 
 // ── CORE MIDDLEWARE ───────────────────────────────────────
@@ -105,9 +120,10 @@ app.use(cors(corsOptions));
 app.use(morgan(NODE_ENV === "production" ? "combined" : "dev"));
 
 // ── CLERK MIDDLEWARE ──────────────────────────────────────
-// Must be registered BEFORE any route that uses requireAuth().
-// This attaches req.auth to every request so controllers
-// can safely call req.auth?.userId to get the verified identity.
+// Registered BEFORE any route that uses requireAuth().
+// Attaches req.auth to every incoming request.
+// Controllers call req.auth?.userId to get the verified Clerk identity.
+// Without this middleware requireAuth() returns null on every request.
 app.use(clerkMiddleware());
 
 // ── RATE LIMITING ─────────────────────────────────────────
@@ -117,6 +133,8 @@ app.use("/api/otp",      otpLimiter);
 app.use("/api/payments", paymentLimiter);
 
 // ── API ROUTES ────────────────────────────────────────────
+
+// Phase 1 and 2 — foundation · verification · payments
 app.use("/api/auth",           authRoutes);
 app.use("/api/otp",            otpRoutes);
 app.use("/api/locations",      locationRoutes);
@@ -128,10 +146,17 @@ app.use("/api/leases",         leaseRoutes);
 app.use("/api/payments",       paymentRoutes);
 app.use("/api/admin",          adminRoutes);
 app.use("/api/admin/payments", adminPaymentRoutes);
+
+// Phase 3.5 — property types · sale · enquiry · messaging · bookings · hostels
 app.use("/api/sale",           saleRoutes);
 app.use("/api/enquiries",      enquiryRoutes);
+app.use("/api/messages",       messageRoutes);
+app.use("/api/bookings",       bookingRoutes);
+app.use("/api/hostels",        hostelRoutes);
 
 // ── HEALTH CHECK ──────────────────────────────────────────
+// Public endpoint — no auth required.
+// Used by Railway / Render to confirm server is alive.
 app.get("/health", (_req: Request, res: Response) => {
   res.json({
     status:      "ok",
@@ -142,12 +167,15 @@ app.get("/health", (_req: Request, res: Response) => {
 });
 
 // ── 404 HANDLER ───────────────────────────────────────────
+// Catches any request that did not match a registered route.
 app.use((_req: Request, res: Response) => {
   res.status(404).json({ success: false, message: "Route not found" });
 });
 
 // ── GLOBAL ERROR HANDLER ──────────────────────────────────
-// err typed as Error instead of any — strict TypeScript compliant
+// Catches any unhandled errors thrown inside route handlers.
+// In development the full error message is returned for debugging.
+// In production only a generic message is returned — internals never exposed.
 app.use((
   err:   Error & { status?: number },
   _req:  Request,
@@ -169,17 +197,27 @@ const server = app.listen(PORT, () => {
   console.log(`\n🚀 AskDerek API is running`);
   console.log(`🔍 URL:       http://localhost:${PORT}`);
   console.log(`❤️  Health:    http://localhost:${PORT}/health`);
+
+  console.log(`\n── Phase 1 and 2 ────────────────────────────`);
   console.log(`🔗 Clerk:     http://localhost:${PORT}/api/webhooks/clerk`);
   console.log(`💳 Paystack:  http://localhost:${PORT}/api/webhooks/paystack`);
-  console.log(`👑 Admin:     http://localhost:${PORT}/api/admin`);
-  console.log(`💰 Payments:  http://localhost:${PORT}/api/payments`);
   console.log(`🔐 Auth:      http://localhost:${PORT}/api/auth`);
   console.log(`📱 OTP:       http://localhost:${PORT}/api/otp`);
   console.log(`📍 Locations: http://localhost:${PORT}/api/locations`);
+  console.log(`🏘️  Properties:http://localhost:${PORT}/api/properties`);
+  console.log(`👑 Admin:     http://localhost:${PORT}/api/admin`);
+  console.log(`💰 Payments:  http://localhost:${PORT}/api/payments`);
+
+  console.log(`\n── Phase 3.5 ────────────────────────────────`);
   console.log(`🏠 Sale:      http://localhost:${PORT}/api/sale`);
   console.log(`💬 Enquiries: http://localhost:${PORT}/api/enquiries`);
-  console.log(`🌍 ENV:       ${NODE_ENV}\n`);
+  console.log(`📨 Messages:  http://localhost:${PORT}/api/messages`);
+  console.log(`📅 Bookings:  http://localhost:${PORT}/api/bookings`);
+  console.log(`🏫 Hostels:   http://localhost:${PORT}/api/hostels`);
 
+  console.log(`\n🌍 ENV:       ${NODE_ENV}\n`);
+
+  // ── START CRON JOBS ───────────────────────────────────
   startOverduePaymentJob();
   startPaymentExpiryJob();
   startReminderJob();
@@ -187,6 +225,8 @@ const server = app.listen(PORT, () => {
 });
 
 // ── GRACEFUL SHUTDOWN ─────────────────────────────────────
+// Handles SIGTERM from Railway/Render and SIGINT from Ctrl+C.
+// Gives active connections 10 seconds to finish before forcing exit.
 const shutdown = (signal: string): void => {
   console.log(`\n⚠️  ${signal} received — shutting down gracefully...`);
   server.close(() => {

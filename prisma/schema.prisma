@@ -435,6 +435,8 @@ model Property {
   bookings     Booking[]
   enquiries    Enquiry[]
   structures   PaymentStructure[]
+  semesterPlans SemesterPlan[]
+
 
   @@index([managerClerkId])
   @@index([locationId])
@@ -798,22 +800,24 @@ model Booking {
 //  when the school announces and all linked students are notified.
 // ─────────────────────────────────────────────────────────────────────────────
 model SemesterPlan {
-  id             Int                 @id @default(autoincrement())
-  propertyId     Int
-  studentClerkId String
-  semesterName   String
-  checkIn        DateTime
-  closingType    ClosingType
-  fixedEndDate   DateTime?
-  schoolId       Int?
-  actualEndDate  DateTime?
-  roomNumber     String?
-  amountPaid     Float
-  reference      String              @unique
-  status         HostelBookingStatus @default(ACTIVE)
-  createdAt      DateTime            @default(now())
+  id              Int                 @id @default(autoincrement())
+  propertyId      Int
+  studentClerkId  String
+  semesterName    String
+  checkIn         DateTime
+  closingType     ClosingType
+  fixedEndDate    DateTime?
+  schoolId        Int?
+  actualEndDate   DateTime?
+  roomNumber      String?
+  amountPaid      Float
+  reference       String              @unique
+  status          HostelBookingStatus @default(ACTIVE)
+  createdAt       DateTime            @default(now())
 
-  school School? @relation(fields: [schoolId], references: [id])
+  // ── Relations ────────────────────────────────────────
+  property Property @relation(fields: [propertyId], references: [id])
+  school   School?  @relation(fields: [schoolId],   references: [id])
 
   @@index([studentClerkId])
   @@index([propertyId])
