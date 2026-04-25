@@ -254,16 +254,12 @@ router.get(
     }
 
     try {
-      const logs = await prisma.auditLog.findMany({
-        where: {
-          OR: [
-            { userClerkId: clerkId },
-            { details: { contains: clerkId, mode: "insensitive" } },
-          ],
-        },
-        orderBy: { createdAt: "desc" },
-      });
-
+     const logs = await prisma.auditLog.findMany({
+  where: {
+    details: { contains: clerkId, mode: "insensitive" },
+  },
+  orderBy: { createdAt: "desc" },
+});
       res.status(200).json({
         success: true,
         message: `${logs.length} audit log(s) found for user ${clerkId}`,

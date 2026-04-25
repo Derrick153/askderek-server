@@ -12,30 +12,41 @@ import { clerkMiddleware }  from "@clerk/express";
 
 // ── ROUTES ────────────────────────────────────────────────
 // Phase 1 and 2 routes — foundation and verification
-import propertyRoutes     from "./routes/propertyRoutes";
-import tenantRoutes       from "./routes/tenantRoutes";
-import managerRoutes      from "./routes/managerRoutes";
-import applicationRoutes  from "./routes/applicationRoutes";
-import leaseRoutes        from "./routes/leaseRoutes";
-import webhookRoutes      from "./routes/webhookRoutes";
-import paymentRoutes      from "./routes/paymentRoutes";
-import adminRoutes        from "./routes/adminRoutes";
-import adminPaymentRoutes from "./routes/adminPaymentRoutes";
-import authRoutes         from "./routes/authRoutes";
-import otpRoutes          from "./routes/otpRoutes";
-import locationRoutes     from "./routes/locationRoutes";
+import propertyRoutes       from "./routes/propertyRoutes";
+import tenantRoutes         from "./routes/tenantRoutes";
+import managerRoutes        from "./routes/managerRoutes";
+import applicationRoutes    from "./routes/applicationRoutes";
+import leaseRoutes          from "./routes/leaseRoutes";
+import webhookRoutes        from "./routes/webhookRoutes";
+import paymentRoutes        from "./routes/paymentRoutes";
+import adminRoutes          from "./routes/adminRoutes";
+import adminPaymentRoutes   from "./routes/adminPaymentRoutes";
+import authRoutes           from "./routes/authRoutes";
+import otpRoutes            from "./routes/otpRoutes";
+import locationRoutes       from "./routes/locationRoutes";
 // Phase 3.5 routes — property types and payment structures
-import saleRoutes         from "./routes/saleRoutes";
-import enquiryRoutes      from "./routes/enquiryRoutes";
-import messageRoutes      from "./routes/messageRoutes";
-import bookingRoutes      from "./routes/bookingRoutes";
-import hostelRoutes       from "./routes/hostelRoutes";
+import saleRoutes           from "./routes/saleRoutes";
+import enquiryRoutes        from "./routes/enquiryRoutes";
+import messageRoutes        from "./routes/messageRoutes";
+import bookingRoutes        from "./routes/bookingRoutes";
+import hostelRoutes         from "./routes/hostelRoutes";
+import schoolRoutes         from "./routes/schoolRoutes";
+import advancePaymentRoutes from "./routes/advancePaymentRoutes";
+import leaseExpiryRoutes    from "./routes/leaseExpiryRoutes";
+import verifyRoutes         from "./routes/verifyRoutes";
+import auditRoutes          from "./routes/auditRoutes";
 
 // ── JOBS ──────────────────────────────────────────────────
+// Phase 1 and 2 jobs
 import { startOverduePaymentJob } from "./jobs/overduePaymentJob";
 import { startPaymentExpiryJob }  from "./jobs/paymentExpiryJob";
 import { startReminderJob }       from "./jobs/reminderJob";
 import { startReconciliationJob } from "./jobs/reconciliationJob";
+// Phase 3.5 jobs
+import { startLeaseExpiryJob }    from "./jobs/leaseExpiryJob";
+import { startShortStayExpiryJob } from "./jobs/shortStayExpiryJob";
+import { startSemesterExpiryJob } from "./jobs/semesterExpiryJob";
+import { startPendingRemovalJob } from "./jobs/pendingRemovalJob";
 
 dotenv.config();
 
@@ -135,24 +146,29 @@ app.use("/api/payments", paymentLimiter);
 // ── API ROUTES ────────────────────────────────────────────
 
 // Phase 1 and 2 — foundation · verification · payments
-app.use("/api/auth",           authRoutes);
-app.use("/api/otp",            otpRoutes);
-app.use("/api/locations",      locationRoutes);
-app.use("/api/properties",     propertyRoutes);
-app.use("/api/tenants",        tenantRoutes);
-app.use("/api/managers",       managerRoutes);
-app.use("/api/applications",   applicationRoutes);
-app.use("/api/leases",         leaseRoutes);
-app.use("/api/payments",       paymentRoutes);
-app.use("/api/admin",          adminRoutes);
-app.use("/api/admin/payments", adminPaymentRoutes);
+app.use("/api/auth",              authRoutes);
+app.use("/api/otp",               otpRoutes);
+app.use("/api/locations",         locationRoutes);
+app.use("/api/properties",        propertyRoutes);
+app.use("/api/tenants",           tenantRoutes);
+app.use("/api/managers",          managerRoutes);
+app.use("/api/applications",      applicationRoutes);
+app.use("/api/leases",            leaseRoutes);
+app.use("/api/payments",          paymentRoutes);
+app.use("/api/admin",             adminRoutes);
+app.use("/api/admin/payments",    adminPaymentRoutes);
 
-// Phase 3.5 — property types · sale · enquiry · messaging · bookings · hostels
-app.use("/api/sale",           saleRoutes);
-app.use("/api/enquiries",      enquiryRoutes);
-app.use("/api/messages",       messageRoutes);
-app.use("/api/bookings",       bookingRoutes);
-app.use("/api/hostels",        hostelRoutes);
+// Phase 3.5 — property types · sale · enquiry · messaging · bookings
+app.use("/api/sale",              saleRoutes);
+app.use("/api/enquiries",         enquiryRoutes);
+app.use("/api/messages",          messageRoutes);
+app.use("/api/bookings",          bookingRoutes);
+app.use("/api/hostels",           hostelRoutes);
+app.use("/api/schools",           schoolRoutes);
+app.use("/api/advance-payments",  advancePaymentRoutes);
+app.use("/api/lease-expiry",      leaseExpiryRoutes);
+app.use("/api/verify",            verifyRoutes);
+app.use("/api/audit",             auditRoutes);
 
 // ── HEALTH CHECK ──────────────────────────────────────────
 // Public endpoint — no auth required.
@@ -214,14 +230,25 @@ const server = app.listen(PORT, () => {
   console.log(`📨 Messages:  http://localhost:${PORT}/api/messages`);
   console.log(`📅 Bookings:  http://localhost:${PORT}/api/bookings`);
   console.log(`🏫 Hostels:   http://localhost:${PORT}/api/hostels`);
+  console.log(`🎓 Schools:   http://localhost:${PORT}/api/schools`);
+  console.log(`💵 Advance:   http://localhost:${PORT}/api/advance-payments`);
+  console.log(`📋 Expiry:    http://localhost:${PORT}/api/lease-expiry`);
+  console.log(`🔍 Verify:    http://localhost:${PORT}/api/verify`);
+  console.log(`📊 Audit:     http://localhost:${PORT}/api/audit`);
 
   console.log(`\n🌍 ENV:       ${NODE_ENV}\n`);
 
   // ── START CRON JOBS ───────────────────────────────────
+  // Phase 1 and 2 jobs
   startOverduePaymentJob();
   startPaymentExpiryJob();
   startReminderJob();
   startReconciliationJob();
+  // Phase 3.5 jobs
+  startLeaseExpiryJob();
+  startShortStayExpiryJob();
+  startSemesterExpiryJob();
+  startPendingRemovalJob();
 });
 
 // ── GRACEFUL SHUTDOWN ─────────────────────────────────────
