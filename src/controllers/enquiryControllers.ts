@@ -1,8 +1,8 @@
-import { Request, Response }          from "express";
-import { z }                          from "zod";
-import { prisma }                     from "../lib/prisma";
-import { logUserEvent, logSystemEvent } from "../lib/auditService";
-import { EnquiryStatus }              from "@prisma/client";
+import { Request, Response }             from "express";
+import { z }                             from "zod";
+import { prisma }                        from "../lib/prisma";
+import { logUserEvent, logSystemEvent }  from "../lib/auditService";
+import { EnquiryStatus }                 from "@prisma/client";
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  enquiryControllers.ts
@@ -18,6 +18,8 @@ import { EnquiryStatus }              from "@prisma/client";
 //    — Status transitions are strictly ordered and validated
 //    — Commission is calculated automatically on deal completion
 //    — Every action is audit logged permanently
+//    — Identity always from JWT — never from req.body or req.query
+//    — Contact info filtered on ALL messages including opening enquiry
 //
 //  Status flow:
 //    NEW → CONTACTED → NEGOTIATING → AGREED → COMPLETED
@@ -25,8 +27,6 @@ import { EnquiryStatus }              from "@prisma/client";
 // ─────────────────────────────────────────────────────────────────────────────
 
 // ── RESPONSE TYPES ────────────────────────────────────────────────────────────
-// T defaults to unknown — allows controllers to return real data objects
-// without TypeScript complaining about type mismatch with undefined.
 
 interface ApiSuccess<T = unknown> {
   success: true;
@@ -42,17 +42,39 @@ interface ApiError {
 
 type ApiResponse<T = unknown> = ApiSuccess<T> | ApiError;
 
+// ── CONTACT INFO FILTER ───────────────────────────────────────────────────────
+// Applied to ALL messages including the opening enquiry message.
+// Identical patterns to messageControllers.ts — same protection everywhere.
+// Covers Ghana numbers, international numbers, email, WhatsApp, Telegram.
+
+const GHANA_PHONE_PATTERN       = /(\+?233|0)[2-9][0-9]{8}/g;
+const DOUBLE_ZERO_PHONE_PATTERN = /\b00[1-9]\d{6,13}/g;
+const SPACED_GHANA_PATTERN      = /0[2-9][0-9]\s?[0-9]{3}\s?[0-9]{4}/g;
+const DASHED_GHANA_PATTERN      = /0[2-9][0-9]-[0-9]{3}-[0-9]{4}/g;
+const INTL_PHONE_PATTERN        = /(\+[1-9]\d{6,14})/g;
+const EMAIL_PATTERN             = /\S+@\S+\.\S+/g;
+const WHATSAPP_PATTERN          = /whatsapp|wa\.me|chat\.whatsapp/gi;
+const TELEGRAM_PATTERN          = /t\.me\/|telegram\.me\//gi;
+
+const filterContactInfo = (text: string): string =>
+  text
+    .replace(GHANA_PHONE_PATTERN,       "[phone number removed]")
+    .replace(DOUBLE_ZERO_PHONE_PATTERN, "[phone number removed]")
+    .replace(SPACED_GHANA_PATTERN,      "[phone number removed]")
+    .replace(DASHED_GHANA_PATTERN,      "[phone number removed]")
+    .replace(INTL_PHONE_PATTERN,        "[phone number removed]")
+    .replace(EMAIL_PATTERN,             "[email removed]")
+    .replace(WHATSAPP_PATTERN,          "[external contact removed]")
+    .replace(TELEGRAM_PATTERN,          "[external contact removed]");
+
 // ── VALIDATION SCHEMAS ────────────────────────────────────────────────────────
-// Zod v4 removed required_error and invalid_type_error from all types.
-// Use error: string for custom type error messages.
-// Remove required_error from z.enum() — not supported in v4.
 
 const createEnquirySchema = z.object({
   propertyId:   z.number({ error: "propertyId must be a number" })
                  .int()
                  .positive("propertyId must be a positive integer"),
   message:      z.string()
-                 .min(10, "Message must be at least 10 characters")
+                 .min(1, "Message cannot be empty")
                  .max(1000, "Message cannot exceed 1000 characters"),
   enquiryType:  z.enum(["MESSAGE", "CALL_REQUEST", "VIEWING"]),
   offeredPrice: z.number().positive().optional(),
@@ -66,7 +88,6 @@ const updateStatusSchema = z.object({
     "LOST",
   ]),
 });
-
 
 const recordDealSchema = z.object({
   agreedPrice: z.number({ error: "agreedPrice must be a number" })
@@ -83,7 +104,7 @@ const respondSchema = z.object({
 // ── SHARED HELPERS ────────────────────────────────────────────────────────────
 
 // Extracts userId from the verified Clerk JWT.
-// Identity must always come from the JWT — never from req.body.
+// Identity must always come from the JWT — never from req.body or req.query.
 const requireAuth = (
   req: Request,
   res: Response
@@ -123,17 +144,21 @@ const formatZodErrors = (
 //  POST /api/enquiries
 //
 //  Buyer sends an enquiry about a property.
+//  enquirerClerkId comes from the JWT — never from req.body.
+//  prepareHeaders in api.ts attaches the Clerk token on every request.
+//  Opening message is contact-filtered before saving — same as all messages.
 //
 //  Edge cases handled:
 //    — Cannot enquire on your own property
 //    — Cannot enquire on a deleted or archived property
 //    — Cannot create duplicate active enquiry on same property
-//    — Property must be AVAILABLE
+//    — Property must be AVAILABLE or UNDER_OFFER
 // ─────────────────────────────────────────────────────────────────────────────
 export const createEnquiry = async (
   req: Request,
   res: Response<ApiResponse>
 ): Promise<void> => {
+  // Identity from JWT only — prepareHeaders attaches Clerk token on every request
   const enquirerClerkId = requireAuth(req, res);
   if (!enquirerClerkId) return;
 
@@ -149,21 +174,26 @@ export const createEnquiry = async (
 
   const { propertyId, message, enquiryType, offeredPrice } = parsed.data;
 
+  // Filter contact info from the opening message before any DB write.
+  // This matches the same protection applied in messageControllers.sendMessage.
+  const filteredMessage = filterContactInfo(message);
+  const wasFiltered     = filteredMessage !== message;
+
   try {
     // Fetch property with manager info in one query — no N+1
     const property = await prisma.property.findFirst({
       where: {
-        id:         propertyId,
-        deletedAt:  null,
-        isArchived: false,
+        id:            propertyId,
+        deletedAt:     null,
+        isArchived:    false,
         listingStatus: { in: ["AVAILABLE", "UNDER_OFFER"] },
       },
       select: {
-        id:            true,
-        name:          true,
+        id:             true,
+        name:           true,
         managerClerkId: true,
-        listingStatus: true,
-        listingType:   true,
+        listingStatus:  true,
+        listingType:    true,
       },
     });
 
@@ -204,7 +234,8 @@ export const createEnquiry = async (
       return;
     }
 
-    // Create enquiry and first message atomically
+    // Create enquiry and first message atomically.
+    // filteredMessage is used — contact info already stripped above.
     const enquiry = await prisma.$transaction(async (tx) => {
       const created = await tx.enquiry.create({
         data: {
@@ -219,12 +250,13 @@ export const createEnquiry = async (
         },
       });
 
-      // First message is created as part of the enquiry
+      // First message created as part of the enquiry — same transaction.
+      // Uses filteredMessage — contact info already stripped before this block.
       await tx.message.create({
         data: {
-          enquiryId:      created.id,
-          senderClerkId:  enquirerClerkId,
-          content:        message,
+          enquiryId:     created.id,
+          senderClerkId: enquirerClerkId,
+          content:       filteredMessage,
         },
       });
 
@@ -235,7 +267,7 @@ export const createEnquiry = async (
       userClerkId: enquirerClerkId,
       action:      "ENQUIRY_CREATED",
       target:      `Property #${propertyId}`,
-      details:     `Enquiry #${enquiry.id} created. Type: ${enquiryType}`,
+      details:     `Enquiry #${enquiry.id} created. Type: ${enquiryType}${wasFiltered ? " [contact info filtered from opening message]" : ""}`,
     });
 
     res.status(201).json({
@@ -295,7 +327,7 @@ export const getUserEnquiries = async (
           },
         },
       },
-      orderBy: { createdAt: "desc" },
+      orderBy: { updatedAt: "desc" },
     });
 
     res.status(200).json({
@@ -347,15 +379,15 @@ export const getManagerEnquiries = async (
           orderBy: { createdAt: "desc" },
           take:    1,
           select: {
-            content:      true,
-            createdAt:    true,
+            content:       true,
+            createdAt:     true,
             senderClerkId: true,
           },
         },
       },
       orderBy: [
-        { isRead: "asc" },   // unread enquiries appear first
-        { createdAt: "desc" },
+        { isRead: "asc" },    // unread enquiries appear first
+        { updatedAt: "desc" },
       ],
     });
 
@@ -502,13 +534,13 @@ export const respondToEnquiry = async (
       prisma.enquiry.update({
         where: { id: enquiryId },
         data: {
-          response:      response,
-          respondedAt:   new Date(),
-          isRead:        true,
-          readAt:        enquiry.readAt ?? new Date(),
-          status:        enquiry.status === EnquiryStatus.NEW
-                           ? EnquiryStatus.CONTACTED
-                           : enquiry.status,
+          response:    response,
+          respondedAt: new Date(),
+          isRead:      true,
+          readAt:      enquiry.readAt ?? new Date(),
+          status:      enquiry.status === EnquiryStatus.NEW
+                         ? EnquiryStatus.CONTACTED
+                         : enquiry.status,
         },
       }),
       prisma.message.create({
@@ -799,10 +831,10 @@ export const recordCompletion = async (
       return;
     }
 
-    const now           = new Date();
-    const isSale        = enquiry.property.listingType === "FOR_SALE" ||
-                          enquiry.property.listingType === "LAND";
-    const newStatus     = isSale ? "SOLD" : "RENTED";
+    const now       = new Date();
+    const isSale    = enquiry.property.listingType === "FOR_SALE" ||
+                      enquiry.property.listingType === "LAND";
+    const newStatus = isSale ? "SOLD" : "RENTED";
 
     // Atomic — enquiry completion and property status update together
     await prisma.$transaction([
@@ -931,8 +963,9 @@ export const archiveEnquiry = async (
 //  GET /api/enquiries/admin/all
 //
 //  Returns all enquiries platform wide — Derek only.
-//  Includes full property and pipeline data.
-//  Used for commission tracking and deal monitoring.
+//  Paginated — prevents memory overload as platform scales.
+//  Summary counts use parallel DB count queries — no JS filtering.
+//  Commission total from DB aggregate — not calculated in memory.
 // ─────────────────────────────────────────────────────────────────────────────
 export const getAllEnquiries = async (
   req: Request,
@@ -941,59 +974,80 @@ export const getAllEnquiries = async (
   const userId = requireAuth(req, res);
   if (!userId) return;
 
+  // Verify admin role from database — JWT alone is not sufficient
+  const user = await prisma.user.findUnique({
+    where:  { clerkId: userId },
+    select: { role: true, isActive: true },
+  });
+
+  if (!user || user.role !== "ADMIN" || !user.isActive) {
+    res.status(403).json({ success: false, message: "Forbidden" });
+    return;
+  }
+
+  const page  = Math.max(1,  Number(req.query.page)  || 1);
+  const limit = Math.min(50, Number(req.query.limit)  || 20);
+  const skip  = (page - 1) * limit;
+
   try {
-    // Verify admin role from database — JWT alone is not sufficient
-    const user = await prisma.user.findUnique({
-      where:  { clerkId: userId },
-      select: { role: true, isActive: true },
-    });
-
-    if (!user || user.role !== "ADMIN" || !user.isActive) {
-      res.status(403).json({ success: false, message: "Forbidden" });
-      return;
-    }
-
-    const enquiries = await prisma.enquiry.findMany({
-      include: {
-        property: {
-          select: {
-            id:            true,
-            name:          true,
-            listingType:   true,
-            listingStatus: true,
+    // All queries run in parallel — faster than sequential DB calls.
+    // Status counts use Prisma count with where — no JS array filtering.
+    // Commission aggregate uses Prisma _sum — no in-memory reduce.
+    const [enquiries, total, newCount, negotiatingCount, agreedCount,
+           completedCount, lostCount, commissionAggregate] = await Promise.all([
+      prisma.enquiry.findMany({
+        skip,
+        take: limit,
+        include: {
+          property: {
+            select: {
+              id:            true,
+              name:          true,
+              listingType:   true,
+              listingStatus: true,
+            },
+          },
+          messages: {
+            orderBy: { createdAt: "desc" },
+            take:    1,
+            select: {
+              content:   true,
+              createdAt: true,
+            },
           },
         },
-        messages: {
-          orderBy: { createdAt: "desc" },
-          take:    1,
-          select: {
-            content:   true,
-            createdAt: true,
-          },
-        },
-      },
-      orderBy: { createdAt: "desc" },
-    });
-
-    // Commission summary for Derek's dashboard
-    const totalCommission = enquiries.reduce(
-      (sum, e) => sum + (e.commissionDue ?? 0),
-      0
-    );
+        orderBy: { updatedAt: "desc" },
+      }),
+      prisma.enquiry.count(),
+      prisma.enquiry.count({ where: { status: "NEW" } }),
+      prisma.enquiry.count({ where: { status: "NEGOTIATING" } }),
+      prisma.enquiry.count({ where: { status: "AGREED" } }),
+      prisma.enquiry.count({ where: { status: "COMPLETED" } }),
+      prisma.enquiry.count({ where: { status: "LOST" } }),
+      prisma.enquiry.aggregate({
+        _sum: { commissionDue: true },
+      }),
+    ]);
 
     res.status(200).json({
       success: true,
       message: "All enquiries retrieved",
       data: {
         enquiries,
+        pagination: {
+          page,
+          limit,
+          total,
+          totalPages: Math.ceil(total / limit),
+        },
         summary: {
-          total:            enquiries.length,
-          new:              enquiries.filter(e => e.status === "NEW").length,
-          negotiating:      enquiries.filter(e => e.status === "NEGOTIATING").length,
-          agreed:           enquiries.filter(e => e.status === "AGREED").length,
-          completed:        enquiries.filter(e => e.status === "COMPLETED").length,
-          lost:             enquiries.filter(e => e.status === "LOST").length,
-          totalCommission,
+          total,
+          new:             newCount,
+          negotiating:     negotiatingCount,
+          agreed:          agreedCount,
+          completed:       completedCount,
+          lost:            lostCount,
+          totalCommission: commissionAggregate._sum.commissionDue ?? 0,
         },
       },
     });

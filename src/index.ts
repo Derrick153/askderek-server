@@ -136,6 +136,10 @@ app.use(morgan(NODE_ENV === "production" ? "combined" : "dev"));
 // Controllers call req.auth?.userId to get the verified Clerk identity.
 // Without this middleware requireAuth() returns null on every request.
 app.use(clerkMiddleware());
+app.use((req: Request, _res: Response, next: NextFunction) => {
+  console.log("AUTH DEBUG:", req.path, req.auth?.userId ?? "NO USER");
+  next();
+});
 
 // ── RATE LIMITING ─────────────────────────────────────────
 app.use("/api",          generalLimiter);

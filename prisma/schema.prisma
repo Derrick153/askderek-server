@@ -696,7 +696,7 @@ model Enquiry {
   commissionDue   Float?
   notes           String?
   completedAt     DateTime?
-  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @default(now()) @updatedAt
 
   // ── Read tracking ─────────────────────────────────────────────────────────
   // isRead = false means manager has not seen this enquiry yet
@@ -742,14 +742,15 @@ model Enquiry {
 //    Derek can always see the original for dispute resolution.
 // ─────────────────────────────────────────────────────────────────────────────
 model Message {
-  id            Int      @id @default(autoincrement())
-  enquiryId     Int
-  senderClerkId String
-  content       String
-  createdAt     DateTime @default(now())
+  id             Int      @id @default(autoincrement())
+  enquiryId      Int
+  senderClerkId  String
+  content        String
+  createdAt      DateTime @default(now())
+  idempotencyKey String?  @unique
 
   // ── Redaction ─────────────────────────────────────────────────────────────
-  isRedacted   Boolean  @default(false)
+  isRedacted   Boolean   @default(false)
   redactedAt   DateTime?
   redactedBy   String?
   redactReason String?

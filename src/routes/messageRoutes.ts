@@ -65,7 +65,7 @@ const adminLimiter = rateLimit({
 // ── STATIC ROUTES — registered before dynamic ─────────────────────────────────
 
 // User inbox — all threads the logged-in user is part of
-router.get("/threads/my",              requireAuth(), generalLimiter,    getUserThreads);
+router.get("/threads/my", generalLimiter, getUserThreads);
 
 // Admin — all threads platform wide with pagination and moderation summary
 router.get("/admin/all",               requireAuth(), adminLimiter,      getAllThreads);
